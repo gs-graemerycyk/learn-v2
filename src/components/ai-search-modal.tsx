@@ -15,12 +15,14 @@ import {
   GitBranch,
   BookOpen,
   Code,
+  Headset,
+  MessageSquareText,
 } from "lucide-react";
 import { useSearch } from "./search-context";
 
 /* ── Query suggestions — curated, brand-relevant, with unique icons ── */
 
-type QueryIntent = "long" | "short" | "classic" | "support";
+type QueryIntent = "long" | "short" | "classic" | "support" | "ai-answer";
 
 interface QuerySuggestion {
   text: string;
@@ -34,6 +36,8 @@ interface QuerySuggestion {
 const curatedSuggestions: QuerySuggestion[] = [
   { text: "How do I migrate from Khoros to Gainsight Community?", icon: GitBranch, intent: "long" },
   { text: "What email format do migration exports need?", icon: Database, intent: "short" },
+  { text: "Why is my Khoros migration export failing?", icon: MessageSquareText, intent: "ai-answer" },
+  { text: "I need a refund — can someone from support help?", icon: Headset, intent: "support" },
   { text: "Setting up OAuth 2.0 webhooks", icon: Code },
   { text: "Automation workflows for recurring tasks", icon: Zap },
   { text: "Building a public product roadmap", icon: Globe },
@@ -119,8 +123,9 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
 const INTENT_LABEL: Record<QueryIntent, string> = {
   long: "AI Answer",
   short: "Short answer",
+  "ai-answer": "AI Answer (compact)",
   classic: "Classic search",
-  support: "Support",
+  support: "Community Agent",
 };
 
 function IntentBadge({ intent }: { intent: QueryIntent }) {
@@ -196,12 +201,18 @@ export function AISearchModal() {
 
   // Map a query intent to its destination route. The default — and what the
   // user gets for any free-typed query — is the AI Answers (long) page.
+  // Support routes to the Forethought demo; "ai-answer" routes to the
+  // compact AI Answers layout.
   const routeForIntent = (intent?: QueryIntent): string => {
     switch (intent) {
       case "short":
         return "/answer";
+      case "ai-answer":
+        return "/ai-answer";
       case "classic":
         return "/search";
+      case "support":
+        return "/forethought";
       case "long":
       default:
         return "/learn";
@@ -213,7 +224,13 @@ export function AISearchModal() {
       const q = (submittedQuery || query).trim();
       if (!q) return;
       const route = routeForIntent(intent);
-      router.push(`${route}?q=${encodeURIComponent(q)}`);
+      // The Forethought page reads ?scenario=&mode= rather than ?q=, so
+      // route there with a sensible default scenario instead of the query.
+      const url =
+        intent === "support"
+          ? `${route}?scenario=refund&mode=forethought`
+          : `${route}?q=${encodeURIComponent(q)}`;
+      router.push(url);
       handleClose();
     },
     [query, handleClose, router]
