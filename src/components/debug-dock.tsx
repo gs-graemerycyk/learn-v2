@@ -14,6 +14,16 @@ const ROUTES: { label: string; href: string; note: string }[] = [
     note: "Orbit homepage with the unified header + AISearchModal",
   },
   {
+    label: "Community Hub (scaffold)",
+    href: "/community-hub",
+    note: "EmailMonkey-style Community homepage — placeholder for recommendation widgets",
+  },
+  {
+    label: "Academy (scaffold)",
+    href: "/academy",
+    note: "EmailMonkey-style Academy homepage — placeholder for recommendation widgets",
+  },
+  {
     label: "AI Answers (long)",
     href: "/learn?q=How+do+I+migrate+from+Khoros+to+Gainsight+Community",
     note: "Chaptered AI answer + chapter nav + AI Tutor + support escalation",
