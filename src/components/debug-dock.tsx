@@ -63,6 +63,16 @@ const ROUTES: { label: string; href: string; note: string }[] = [
     href: "/published",
     note: "What end users see — fully interactive, modals open within the widget",
   },
+  {
+    label: "For You · bot builder",
+    href: "/for-you-builder",
+    note: "Phone-frame preview of the For You widget + Configure Your Bot panel (no taps)",
+  },
+  {
+    label: "For You · published",
+    href: "/for-you-published",
+    note: "Live in-app drawer of the For You widget — fully interactive carousel",
+  },
 ];
 
 // Forethought demo deep links — the exec demo lives at /forethought and
