@@ -42,7 +42,9 @@ export function ForYouWidget({ items, mode = "published" }: ForYouWidgetProps) {
     if (!el) return;
     const card = el.firstElementChild as HTMLElement | null;
     if (!card) return;
-    const cardWidth = card.offsetWidth + 12; // gap matches `gap-3`
+    // gap matches `gap-2 sm:gap-3` — fall back to the larger value, which
+    // is fine for snap detection (a few px off won't change the index).
+    const cardWidth = card.offsetWidth + 12;
     const idx = Math.round(el.scrollLeft / cardWidth);
     setActiveIndex(Math.max(0, Math.min(items.length - 1, idx)));
   }, [items.length]);
@@ -80,15 +82,15 @@ export function ForYouWidget({ items, mode = "published" }: ForYouWidgetProps) {
   return (
     <div className="flex h-full flex-col bg-[#FDFEFF]">
       {/* ── Drawer header ── */}
-      <header className="shrink-0 border-b border-black/[0.07] bg-white px-4 pb-3 pt-4">
-        <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--accent-strong)]">
+      <header className="shrink-0 border-b border-black/[0.07] bg-white px-3 pb-2.5 pt-3 sm:px-4 sm:pb-3 sm:pt-4">
+        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--accent-strong)] sm:text-[10.5px]">
           <Sparkles className="h-3 w-3" strokeWidth={2.5} />
           For you
         </div>
-        <h2 className="mt-1.5 text-[15px] font-semibold leading-[1.25] text-foreground">
+        <h2 className="mt-1 text-[13.5px] font-semibold leading-[1.25] text-foreground sm:mt-1.5 sm:text-[15px]">
           Hi Sarah, pick up where you left off
         </h2>
-        <p className="mt-1 text-[11.5px] leading-[1.45] text-foreground/55">
+        <p className="mt-0.5 text-[11px] leading-[1.4] text-foreground/55 sm:mt-1 sm:text-[11.5px] sm:leading-[1.45]">
           A mix of lessons, articles and conversations chosen for you.
         </p>
       </header>
@@ -98,7 +100,7 @@ export function ForYouWidget({ items, mode = "published" }: ForYouWidgetProps) {
         <div
           ref={scrollerRef}
           className={cn(
-            "flex h-full gap-3 overflow-x-auto px-4 py-4",
+            "flex h-full gap-2 overflow-x-auto px-3 py-3 sm:gap-3 sm:px-4 sm:py-4",
             "snap-x snap-mandatory",
             // Hide scrollbar inside the widget frame for a clean look.
             "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
@@ -108,10 +110,11 @@ export function ForYouWidget({ items, mode = "published" }: ForYouWidgetProps) {
           {items.map((item, i) => (
             <div
               key={item.id}
-              className="shrink-0 snap-start"
-              // 280px ≈ comfortable card width inside the 380px widget,
-              // leaving ~12px peek of the next card on the right.
-              style={{ width: 280 }}
+              // Container-relative card width: ~78% of the rail leaves a
+              // visible peek of the next card regardless of the widget
+              // frame size. Capped at 280px so larger embeds don't blow
+              // up the card.
+              className="shrink-0 snap-start w-[78%] max-w-[280px]"
             >
               <CardForItem
                 item={item}
@@ -130,46 +133,46 @@ export function ForYouWidget({ items, mode = "published" }: ForYouWidgetProps) {
               onClick={() => scrollByCard("left")}
               aria-label="Previous recommendation"
               className={cn(
-                "absolute left-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full border border-black/10 bg-white shadow-md transition-opacity",
+                "absolute left-1.5 top-1/2 z-10 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full border border-black/10 bg-white shadow-md transition-opacity sm:left-2 sm:h-8 sm:w-8",
                 activeIndex === 0 ? "pointer-events-none opacity-0" : "opacity-100"
               )}
             >
-              <ChevronLeft className="h-4 w-4 text-black/65" strokeWidth={2.25} />
+              <ChevronLeft className="h-3.5 w-3.5 text-black/65 sm:h-4 sm:w-4" strokeWidth={2.25} />
             </button>
             <button
               type="button"
               onClick={() => scrollByCard("right")}
               aria-label="Next recommendation"
               className={cn(
-                "absolute right-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full border border-black/10 bg-white shadow-md transition-opacity",
+                "absolute right-1.5 top-1/2 z-10 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full border border-black/10 bg-white shadow-md transition-opacity sm:right-2 sm:h-8 sm:w-8",
                 activeIndex >= items.length - 1
                   ? "pointer-events-none opacity-0"
                   : "opacity-100"
               )}
             >
-              <ChevronRight className="h-4 w-4 text-black/65" strokeWidth={2.25} />
+              <ChevronRight className="h-3.5 w-3.5 text-black/65 sm:h-4 sm:w-4" strokeWidth={2.25} />
             </button>
           </>
         )}
       </div>
 
       {/* ── Pagination dots + footer ── */}
-      <footer className="shrink-0 border-t border-black/[0.07] bg-white px-4 py-3">
-        <div className="flex items-center justify-center gap-1.5">
+      <footer className="shrink-0 border-t border-black/[0.07] bg-white px-3 py-2 sm:px-4 sm:py-3">
+        <div className="flex items-center justify-center gap-1 sm:gap-1.5">
           {items.map((it, i) => (
             <span
               key={it.id}
               aria-hidden
               className={cn(
-                "h-1.5 rounded-full transition-all duration-200",
+                "h-1 rounded-full transition-all duration-200 sm:h-1.5",
                 i === activeIndex
-                  ? "w-4 bg-[var(--accent-strong)]"
-                  : "w-1.5 bg-black/15"
+                  ? "w-3.5 bg-[var(--accent-strong)] sm:w-4"
+                  : "w-1 bg-black/15 sm:w-1.5"
               )}
             />
           ))}
         </div>
-        <p className="mt-2 text-center text-[10.5px] text-foreground/45">
+        <p className="mt-1.5 text-center text-[10px] text-foreground/45 sm:mt-2 sm:text-[10.5px]">
           Showing {activeIndex + 1} of {items.length} · powered by AI Search
         </p>
       </footer>

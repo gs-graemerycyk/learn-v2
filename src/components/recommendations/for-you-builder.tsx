@@ -37,19 +37,24 @@ const ACTIVE_WIDGETS: Widget[] = [
 
 export function ForYouBuilder() {
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] bg-[#F4F5F8]">
-      <div className="flex flex-1 flex-col items-center justify-start overflow-hidden p-8">
+    <div className="flex min-h-[calc(100vh-4rem)] flex-col bg-[#F4F5F8] lg:flex-row">
+      <div className="flex flex-1 flex-col items-center justify-start overflow-hidden p-4 sm:p-6 lg:p-8">
         <BuilderHeader />
 
-        <div className="mt-6 grid h-full w-full place-items-center">
+        <div className="mt-4 grid h-full w-full place-items-center sm:mt-6">
           <PhoneFrame>
             <ForYouWidget items={mockRecommendations} mode="builder" />
           </PhoneFrame>
         </div>
 
-        <div className="mt-5 flex shrink-0 items-center gap-2 text-[11px] text-foreground/55">
+        <div className="mt-4 flex shrink-0 items-center gap-2 text-[10.5px] text-foreground/55 sm:mt-5 sm:text-[11px]">
           <Info className="h-3 w-3" strokeWidth={2.25} />
-          Drag widgets in the right panel to reorder · Click any widget to configure it
+          <span className="hidden sm:inline">
+            Drag widgets in the right panel to reorder · Click any widget to configure it
+          </span>
+          <span className="sm:hidden">
+            Scroll down to configure widgets
+          </span>
         </div>
       </div>
 
@@ -60,19 +65,19 @@ export function ForYouBuilder() {
 
 function BuilderHeader() {
   return (
-    <div className="flex w-full max-w-[640px] items-center justify-between text-[11.5px] text-foreground/65">
-      <div className="flex items-center gap-1.5">
-        <span className="font-medium text-foreground/55">Bots</span>
-        <span className="text-foreground/30">/</span>
-        <span className="font-medium text-foreground/55">KCBot</span>
-        <span className="text-foreground/30">/</span>
-        <span className="font-semibold text-foreground">Onboarding flow</span>
+    <div className="flex w-full max-w-[640px] items-center justify-between gap-3 text-[11px] text-foreground/65 sm:text-[11.5px]">
+      <div className="flex min-w-0 items-center gap-1 truncate sm:gap-1.5">
+        <span className="hidden font-medium text-foreground/55 sm:inline">Bots</span>
+        <span className="hidden text-foreground/30 sm:inline">/</span>
+        <span className="hidden font-medium text-foreground/55 sm:inline">KCBot</span>
+        <span className="hidden text-foreground/30 sm:inline">/</span>
+        <span className="truncate font-semibold text-foreground">Onboarding flow</span>
       </div>
-      <div className="flex items-center gap-2">
-        <button className="rounded-md border border-black/[0.08] bg-white px-2.5 py-1 text-[11.5px] font-medium text-foreground/70 hover:border-black/[0.15]">
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+        <button className="rounded-md border border-black/[0.08] bg-white px-2 py-1 font-medium text-foreground/70 hover:border-black/[0.15] sm:px-2.5">
           Preview
         </button>
-        <button className="rounded-md bg-foreground px-2.5 py-1 text-[11.5px] font-medium text-background hover:opacity-85">
+        <button className="rounded-md bg-foreground px-2 py-1 font-medium text-background hover:opacity-85 sm:px-2.5">
           Publish
         </button>
       </div>
@@ -81,10 +86,13 @@ function BuilderHeader() {
 }
 
 function PhoneFrame({ children }: { children: React.ReactNode }) {
+  // Same responsive sizing rules as the published view's frame: scale
+  // down with the viewport while keeping the 380 × 720 ceiling so the
+  // builder still reads as a phone preview on a desktop window.
   return (
     <div
-      className="relative flex flex-col overflow-hidden rounded-[28px] border border-black/[0.07] bg-white shadow-[0_24px_60px_-16px_rgba(0,0,0,0.18)]"
-      style={{ width: 380, height: 720 }}
+      className="relative flex w-full max-w-[380px] flex-col overflow-hidden rounded-[20px] border border-black/[0.07] bg-white shadow-[0_24px_60px_-16px_rgba(0,0,0,0.18)] sm:rounded-[28px]"
+      style={{ height: "min(720px, calc(100dvh - 14rem))" }}
     >
       {children}
     </div>
@@ -92,8 +100,11 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 }
 
 function ConfigPanel() {
+  // On mobile the canvas stacks: phone preview on top, config panel
+  // below (full-width, separated by a top border instead of a left
+  // border). On lg+ it returns to the original side-by-side layout.
   return (
-    <aside className="flex w-[360px] shrink-0 flex-col border-l border-black/[0.08] bg-white">
+    <aside className="flex w-full shrink-0 flex-col border-t border-black/[0.08] bg-white lg:w-[360px] lg:border-l lg:border-t-0">
       <div className="flex items-center border-b border-black/[0.07] px-3 py-2">
         <TabIcon active>
           <LayoutGrid className="h-4 w-4" strokeWidth={2} />
