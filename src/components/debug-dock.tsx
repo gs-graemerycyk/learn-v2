@@ -73,6 +73,11 @@ const ROUTES: { label: string; href: string; note: string }[] = [
     href: "/for-you-published",
     note: "Live in-app drawer of the For You widget — fully interactive carousel",
   },
+  {
+    label: "Skilljar Catalog Page Builder",
+    href: "/skilljar-builder",
+    note: "Skilljar admin UI demo — For You Feed block in Personalized content blocks",
+  },
 ];
 
 // Forethought demo deep links — the exec demo lives at /forethought and
