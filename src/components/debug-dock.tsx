@@ -78,6 +78,11 @@ const ROUTES: { label: string; href: string; note: string }[] = [
     href: "/skilljar-builder",
     note: "Skilljar admin UI demo — For You Feed block in Personalized content blocks",
   },
+  {
+    label: "CC Page Builder · Recommendations",
+    href: "/cc-builder",
+    note: "CC admin UI demo — toggle the Recommendations widget between manual topics and the algorithmic feed (3/5/7, list/cards/carousel)",
+  },
 ];
 
 // Forethought demo deep links — the exec demo lives at /forethought and
