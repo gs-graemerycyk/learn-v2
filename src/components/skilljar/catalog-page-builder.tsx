@@ -20,7 +20,15 @@
 // "X" in the top-right resets to the empty canvas.
 
 import { useState } from "react";
-import { Palette, Settings, X, GraduationCap, Sparkles } from "lucide-react";
+import {
+  Palette,
+  Settings,
+  X,
+  GraduationCap,
+  Sparkles,
+  Layers,
+  Compass,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type BlockKind =
@@ -29,16 +37,20 @@ type BlockKind =
   | "catalog-tiles"
   | "announcement"
   | "in-progress-courses"
-  | "for-you-feed";
+  | "for-you-feed"
+  | "recommended-courses"
+  | "recommended-content";
 
 interface PlacedBlock {
   id: string;
   kind: BlockKind;
   sectionHeader: string;
-  // For You + In-Progress specific knobs (we only configure these two)
+  // Configurable knobs across the personalised blocks. Each drawer only
+  // surfaces the subset that applies to its block kind.
   includeProfileLink?: boolean;
   includeResumptions?: boolean;
   showReasoning?: boolean;
+  excludeCompleted?: boolean;
   maxTiles?: number;
   alignment?: "left" | "center" | "right";
 }
@@ -111,9 +123,23 @@ export function CatalogPageBuilder() {
             {drawer.kind === "config" && drawer.block === "for-you-feed" && (
               <ForYouFeedConfigDrawer onClose={closeDrawer} onAdd={handleAdd} />
             )}
+            {drawer.kind === "config" && drawer.block === "recommended-courses" && (
+              <RecommendedCoursesConfigDrawer
+                onClose={closeDrawer}
+                onAdd={handleAdd}
+              />
+            )}
+            {drawer.kind === "config" && drawer.block === "recommended-content" && (
+              <RecommendedContentConfigDrawer
+                onClose={closeDrawer}
+                onAdd={handleAdd}
+              />
+            )}
             {drawer.kind === "config" &&
               drawer.block !== "in-progress-courses" &&
-              drawer.block !== "for-you-feed" && (
+              drawer.block !== "for-you-feed" &&
+              drawer.block !== "recommended-courses" &&
+              drawer.block !== "recommended-content" && (
                 <GenericConfigDrawer
                   blockKind={drawer.block}
                   onClose={closeDrawer}
@@ -298,7 +324,9 @@ function PlacedBlockCard({ block }: { block: PlacedBlock }) {
       <div className="flex items-center gap-2 border-b border-black/[0.06] bg-[#F7F8FA] px-3 py-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
         {meta.icon}
         {meta.label}
-        {block.kind === "for-you-feed" && (
+        {(block.kind === "for-you-feed" ||
+          block.kind === "recommended-courses" ||
+          block.kind === "recommended-content") && (
           <span className="rounded-full bg-[#0B6BCB] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
             New
           </span>
@@ -372,6 +400,18 @@ function AddContentDrawer({
             label="In-Progress Courses"
             preview={<TilesPreview />}
             onClick={() => onPick("in-progress-courses")}
+          />
+          <BlockTile
+            label="Recommended Courses"
+            badge="NEW"
+            preview={<RecommendedCoursesPreview />}
+            onClick={() => onPick("recommended-courses")}
+          />
+          <BlockTile
+            label="Recommended Content"
+            badge="NEW"
+            preview={<RecommendedContentPreview />}
+            onClick={() => onPick("recommended-content")}
           />
           <BlockTile
             label="For You Feed"
@@ -475,6 +515,46 @@ function ForYouPreview() {
         <span className="h-5 rounded bg-gradient-to-br from-violet-200 to-indigo-200" />
         <span className="h-5 rounded bg-gradient-to-br from-amber-100 to-rose-200" />
         <span className="h-5 rounded bg-gradient-to-br from-emerald-100 to-sky-200" />
+      </div>
+    </div>
+  );
+}
+
+function RecommendedCoursesPreview() {
+  // Courses-only — same shape as the Catalog/In-Progress tiles preview
+  // but tinted with the recommendations accent so it reads as a sibling
+  // rather than a duplicate of In-Progress Courses.
+  return (
+    <div className="flex h-full w-full flex-col gap-1.5 rounded bg-white p-2">
+      <span className="flex items-center gap-1">
+        <Layers className="h-2 w-2 text-[#0B6BCB]" strokeWidth={2.5} />
+        <span className="h-1 w-10 rounded bg-[#0B6BCB]/70" />
+      </span>
+      <div className="grid grid-cols-3 gap-1">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="h-5 rounded bg-gradient-to-br from-sky-100 to-indigo-200"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RecommendedContentPreview() {
+  // Mixed sources — alternating swatches hint that tiles can be courses
+  // *or* community content (questions, articles, ideas, etc).
+  return (
+    <div className="flex h-full w-full flex-col gap-1.5 rounded bg-white p-2">
+      <span className="flex items-center gap-1">
+        <Compass className="h-2 w-2 text-[#0B6BCB]" strokeWidth={2.5} />
+        <span className="h-1 w-10 rounded bg-[#0B6BCB]/70" />
+      </span>
+      <div className="grid grid-cols-3 gap-1">
+        <span className="h-5 rounded bg-gradient-to-br from-sky-100 to-indigo-200" />
+        <span className="h-5 rounded bg-gradient-to-br from-amber-100 to-rose-200" />
+        <span className="h-5 rounded bg-gradient-to-br from-emerald-100 to-teal-200" />
       </div>
     </div>
   );
@@ -716,6 +796,184 @@ function ForYouFeedConfigDrawer({
             sectionHeader: header || "For you",
             includeResumptions,
             showReasoning,
+            maxTiles,
+            alignment,
+          })
+        }
+      />
+    </>
+  );
+}
+
+function RecommendedCoursesConfigDrawer({
+  onClose,
+  onAdd,
+}: {
+  onClose: () => void;
+  onAdd: (b: PlacedBlock) => void;
+}) {
+  const [header, setHeader] = useState("Recommended for you");
+  const [description, setDescription] = useState(
+    "Courses chosen for this student based on their learning history and role."
+  );
+  const [excludeCompleted, setExcludeCompleted] = useState(true);
+  const [maxTiles, setMaxTiles] = useState(4);
+  const [alignment, setAlignment] = useState<"left" | "center" | "right">(
+    "center"
+  );
+
+  return (
+    <>
+      <DrawerHeader
+        title="Add Recommended Courses"
+        subtitle="Displays catalog tiles for courses the student is most likely to take next, ranked by the recommendations engine. Courses only — for mixed content, use Recommended Content."
+        onClose={onClose}
+      />
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-[#0B6BCB]/30 bg-[#EAF2FB] px-3 py-2 text-[12px] text-[#0B6BCB]">
+          <Layers className="h-3.5 w-3.5" strokeWidth={2.5} />
+          <span>
+            <strong>NEW.</strong> Courses-only recommendations powered by the
+            DCH recommendations engine.
+          </span>
+        </div>
+
+        <SectionHeading>Content</SectionHeading>
+        <TextField
+          label="Section header (optional)"
+          value={header}
+          onChange={setHeader}
+          maxLength={100}
+          help="Any text you enter here will be visible on your page as an h2."
+        />
+        <TextAreaField
+          label="Section description (optional)"
+          value={description}
+          onChange={setDescription}
+          maxLength={500}
+          help="Any text you enter here will be visible on your page as a p."
+        />
+
+        <Checkbox
+          checked={excludeCompleted}
+          onChange={setExcludeCompleted}
+          label="Exclude courses the student has completed"
+          help="Keeps the rail focused on net-new learning. Disable if you want completed courses to resurface for retraining or refresher prompts."
+        />
+
+        <NumberField
+          label="Maximum number of catalog tiles"
+          value={maxTiles}
+          onChange={setMaxTiles}
+          help="If the student has no recommended courses yet, this content block will be hidden."
+        />
+
+        <SectionHeading className="mt-6">Layout</SectionHeading>
+        <Radios
+          legend="Text and catalog tile alignment"
+          help="Does not apply to text within the tiles."
+          value={alignment}
+          onChange={setAlignment}
+          options={[
+            { value: "left", label: "Align left" },
+            { value: "center", label: "Align center" },
+            { value: "right", label: "Align right" },
+          ]}
+        />
+      </div>
+      <DrawerFooter
+        onCancel={onClose}
+        onAdd={() =>
+          onAdd({
+            id: cryptoId(),
+            kind: "recommended-courses",
+            sectionHeader: header || "Recommended for you",
+            excludeCompleted,
+            maxTiles,
+            alignment,
+          })
+        }
+      />
+    </>
+  );
+}
+
+function RecommendedContentConfigDrawer({
+  onClose,
+  onAdd,
+}: {
+  onClose: () => void;
+  onAdd: (b: PlacedBlock) => void;
+}) {
+  const [header, setHeader] = useState("Recommended for you");
+  const [description, setDescription] = useState(
+    "A mix of courses and community content chosen for this student."
+  );
+  const [maxTiles, setMaxTiles] = useState(6);
+  const [alignment, setAlignment] = useState<"left" | "center" | "right">(
+    "center"
+  );
+
+  return (
+    <>
+      <DrawerHeader
+        title="Add Recommended Content"
+        subtitle="A mixed rail of courses and community content (questions, articles, ideas, conversations) ranked together."
+        onClose={onClose}
+      />
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+          <Compass className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+          <span>
+            <strong>Cross-product customers only.</strong> Requires both
+            Skilljar Academy and Community Cloud. Tiles are mixed by default —
+            there is no per-source toggle.
+          </span>
+        </div>
+
+        <SectionHeading>Content</SectionHeading>
+        <TextField
+          label="Section header (optional)"
+          value={header}
+          onChange={setHeader}
+          maxLength={100}
+          help="Any text you enter here will be visible on your page as an h2."
+        />
+        <TextAreaField
+          label="Section description (optional)"
+          value={description}
+          onChange={setDescription}
+          maxLength={500}
+          help="Any text you enter here will be visible on your page as a p."
+        />
+
+        <NumberField
+          label="Maximum number of catalog tiles"
+          value={maxTiles}
+          onChange={setMaxTiles}
+          help="If the student has no recommendations yet, this content block will be hidden."
+        />
+
+        <SectionHeading className="mt-6">Layout</SectionHeading>
+        <Radios
+          legend="Text and catalog tile alignment"
+          help="Does not apply to text within the tiles."
+          value={alignment}
+          onChange={setAlignment}
+          options={[
+            { value: "left", label: "Align left" },
+            { value: "center", label: "Align center" },
+            { value: "right", label: "Align right" },
+          ]}
+        />
+      </div>
+      <DrawerFooter
+        onCancel={onClose}
+        onAdd={() =>
+          onAdd({
+            id: cryptoId(),
+            kind: "recommended-content",
+            sectionHeader: header || "Recommended for you",
             maxTiles,
             alignment,
           })
@@ -991,6 +1249,14 @@ const BLOCK_META: Record<BlockKind, { label: string; icon: React.ReactNode }> = 
   "for-you-feed": {
     label: "For You Feed",
     icon: <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />,
+  },
+  "recommended-courses": {
+    label: "Recommended Courses",
+    icon: <Layers className="h-3.5 w-3.5" strokeWidth={2} />,
+  },
+  "recommended-content": {
+    label: "Recommended Content",
+    icon: <Compass className="h-3.5 w-3.5" strokeWidth={2} />,
   },
 };
 
