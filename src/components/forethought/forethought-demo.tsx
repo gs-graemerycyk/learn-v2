@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   ArrowRight,
@@ -87,6 +87,11 @@ type ClarifyPickId = "auth" | "rate-limits" | "webhooks" | "api-version";
 type ClarifyOption = {
   id: ClarifyPickId;
   label: string;
+  // Status copy shown next to the typing dots while the agent is
+  // "preparing" the focused answer for this pick. Area-specific so the
+  // loading state reads like a real product instead of a generic
+  // spinner.
+  loadingText?: string;
 };
 
 type ResolutionTurn = {
@@ -517,10 +522,26 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
       isClarification: true,
       clarifyEyebrow: "Quick question first",
       clarifyOptions: [
-        { id: "auth", label: "Authentication / SSO" },
-        { id: "rate-limits", label: "Rate limits or quotas" },
-        { id: "webhooks", label: "Webhook delivery" },
-        { id: "api-version", label: "API version compatibility" },
+        {
+          id: "auth",
+          label: "Authentication / SSO",
+          loadingText: "Searching authentication threads…",
+        },
+        {
+          id: "rate-limits",
+          label: "Rate limits or quotas",
+          loadingText: "Pulling rate-limit reports from the last 30 days…",
+        },
+        {
+          id: "webhooks",
+          label: "Webhook delivery",
+          loadingText: "Checking webhook delivery patterns…",
+        },
+        {
+          id: "api-version",
+          label: "API version compatibility",
+          loadingText: "Diffing API version migration notes…",
+        },
       ],
       // Intentionally empty — the next turn (after the user picks an option)
       // is where sources / follow-ups / helpful count materialise.
@@ -1160,8 +1181,30 @@ function ForethoughtAnswer({
   const { agent, reasoning } = scenario;
   const resolution =
     pickedOption && scenario.clarifyResolutions?.[pickedOption];
-  const pickedLabel =
-    pickedOption && agent.clarifyOptions?.find((o) => o.id === pickedOption)?.label;
+  const pickedOpt =
+    pickedOption && agent.clarifyOptions?.find((o) => o.id === pickedOption);
+  const pickedLabel = pickedOpt?.label;
+  const pickedLoadingText = pickedOpt?.loadingText;
+
+  // Brief typing-style loading state between a user pick and the agent's
+  // focused answer. Skipped on initial mount so URL deep-links (e.g.
+  // /forethought?pick=auth) land directly on the resolution turn.
+  const [loadingResolution, setLoadingResolution] = useState(false);
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (pickedOption) {
+      setLoadingResolution(true);
+      const t = setTimeout(() => setLoadingResolution(false), 1100);
+      return () => clearTimeout(t);
+    } else {
+      setLoadingResolution(false);
+    }
+  }, [pickedOption]);
 
   return (
     <section
@@ -1269,10 +1312,13 @@ function ForethoughtAnswer({
 
         {/* Clarification — agent asks a multi-choice question rather than
             guessing at an ambiguous query. Sources / follow-ups / helpful
-            count are intentionally hidden — they appear on the next turn. */}
+            count are intentionally hidden — they appear on the next turn.
+            Disappears entirely once the user picks an option, matching
+            how the production chat would advance to the next turn. */}
         {agent.isClarification &&
           agent.clarifyOptions &&
-          agent.clarifyOptions.length > 0 && (
+          agent.clarifyOptions.length > 0 &&
+          !pickedOption && (
             <div
               className="mt-4 flex flex-col gap-2.5 rounded-xl border p-4"
               style={{
@@ -1341,12 +1387,14 @@ function ForethoughtAnswer({
 
         {/* Second turn — focused resolution after the user picks an option.
             Renders as a chat-style continuation: a user message bubble
-            with the chosen label, then the agent's follow-up answer
-            (paragraphs, diagnostic steps, resolution, sources, follow-ups,
-            helpful counter). */}
+            with the chosen label, a brief typing-state loader, then the
+            agent's follow-up answer (paragraphs, diagnostic steps,
+            resolution, sources, follow-ups, helpful counter). */}
         {agent.isClarification && resolution && pickedLabel && (
           <ResolutionTurn
             pickedLabel={pickedLabel}
+            loading={loadingResolution}
+            loadingText={pickedLoadingText}
             agent={resolution.agent}
             reasoning={resolution.reasoning}
           />
@@ -1460,10 +1508,14 @@ function ForethoughtAnswer({
    counter), reusing the existing visual primitives. */
 function ResolutionTurn({
   pickedLabel,
+  loading,
+  loadingText,
   agent,
   reasoning,
 }: {
   pickedLabel: string;
+  loading?: boolean;
+  loadingText?: string;
   agent: AgentResponse;
   reasoning: ReasoningTrace;
 }) {
@@ -1482,143 +1534,201 @@ function ResolutionTurn({
         </div>
       </div>
 
-      {/* Agent's focused follow-up — paragraphs */}
-      <div className="flex flex-col gap-2.5">
-        {agent.paragraphs.map((p, i) => (
-          <p key={i} className="text-[14.5px] leading-[1.6] text-foreground/85">
-            {p}
-          </p>
-        ))}
-      </div>
-
-      {/* Diagnostic steps */}
-      {agent.diagnosticSteps && agent.diagnosticSteps.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-xl border border-black/[0.05] bg-[#FAFBFC] p-4">
-          <div
-            className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]"
-            style={{ color: FT_TEAL_DARK }}
-          >
-            <Workflow className="h-3 w-3" strokeWidth={2.25} />
-            What I checked
-          </div>
-          <ol className="flex flex-col gap-1.5">
-            {agent.diagnosticSteps.map((step, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-2.5 text-[13.5px] leading-[1.5] text-foreground/85"
-              >
-                <span
-                  className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10.5px] font-semibold tabular-nums text-white"
-                  style={{
-                    backgroundColor:
-                      step.status === "found" ? "#F59E0B" : FT_TEAL,
-                  }}
-                >
-                  {step.status === "found" ? (
-                    <Zap className="h-2.5 w-2.5" strokeWidth={2.5} />
-                  ) : (
-                    <Check className="h-2.5 w-2.5" strokeWidth={3} />
-                  )}
-                </span>
-                <span>
-                  <span
-                    className="mr-1.5 font-semibold tabular-nums"
-                    style={{ color: FT_TEAL_DARK }}
-                  >
-                    {i + 1}.
-                  </span>
-                  {step.label}
-                </span>
-              </li>
+      {/* Loading state — typing dots while the agent prepares the
+          focused answer. Replaced by the full resolution once the
+          mock latency elapses. */}
+      {loading ? (
+        <AgentTypingIndicator status={loadingText} />
+      ) : (
+        <>
+          {/* Agent's focused follow-up — paragraphs */}
+          <div className="flex flex-col gap-2.5">
+            {agent.paragraphs.map((p, i) => (
+              <p key={i} className="text-[14.5px] leading-[1.6] text-foreground/85">
+                {p}
+              </p>
             ))}
-          </ol>
-        </div>
-      )}
-
-      {/* Resolution box */}
-      {agent.resolution && (
-        <div
-          className="flex flex-col gap-2 rounded-xl border p-4"
-          style={{
-            borderColor: FT_TEAL_BORDER,
-            backgroundColor: FT_TEAL_TINT,
-          }}
-        >
-          <div
-            className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]"
-            style={{ color: FT_TEAL_DARK }}
-          >
-            <Lightbulb className="h-3 w-3" strokeWidth={2.25} />
-            Resolution
           </div>
-          <p className="text-[13.5px] leading-[1.6] text-foreground/85">
-            {agent.resolution}
-          </p>
-          {agent.resolutionLink && (
+
+          {/* Diagnostic steps */}
+          {agent.diagnosticSteps && agent.diagnosticSteps.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-xl border border-black/[0.05] bg-[#FAFBFC] p-4">
+              <div
+                className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]"
+                style={{ color: FT_TEAL_DARK }}
+              >
+                <Workflow className="h-3 w-3" strokeWidth={2.25} />
+                What I checked
+              </div>
+              <ol className="flex flex-col gap-1.5">
+                {agent.diagnosticSteps.map((step, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2.5 text-[13.5px] leading-[1.5] text-foreground/85"
+                  >
+                    <span
+                      className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10.5px] font-semibold tabular-nums text-white"
+                      style={{
+                        backgroundColor:
+                          step.status === "found" ? "#F59E0B" : FT_TEAL,
+                      }}
+                    >
+                      {step.status === "found" ? (
+                        <Zap className="h-2.5 w-2.5" strokeWidth={2.5} />
+                      ) : (
+                        <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                      )}
+                    </span>
+                    <span>
+                      <span
+                        className="mr-1.5 font-semibold tabular-nums"
+                        style={{ color: FT_TEAL_DARK }}
+                      >
+                        {i + 1}.
+                      </span>
+                      {step.label}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {/* Resolution box */}
+          {agent.resolution && (
+            <div
+              className="flex flex-col gap-2 rounded-xl border p-4"
+              style={{
+                borderColor: FT_TEAL_BORDER,
+                backgroundColor: FT_TEAL_TINT,
+              }}
+            >
+              <div
+                className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]"
+                style={{ color: FT_TEAL_DARK }}
+              >
+                <Lightbulb className="h-3 w-3" strokeWidth={2.25} />
+                Resolution
+              </div>
+              <p className="text-[13.5px] leading-[1.6] text-foreground/85">
+                {agent.resolution}
+              </p>
+              {agent.resolutionLink && (
+                <a
+                  href="#"
+                  onClick={(e) => e.preventDefault()}
+                  className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-semibold text-white"
+                  style={{ backgroundColor: FT_TEAL_DARK }}
+                >
+                  {agent.resolutionLink.label}
+                  <ArrowRight className="h-3 w-3" strokeWidth={2.25} />
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* Reasoning trace for this focused turn */}
+          <ReasoningExpander reasoning={reasoning} />
+
+          {/* Sources */}
+          {agent.sources.length > 0 && (
+            <div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
+                Drawn from
+              </div>
+              <div className="flex flex-col gap-2">
+                {agent.sources.map((s, i) => (
+                  <SourceChip key={i} source={s} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Follow-ups */}
+          {agent.followUps.length > 0 && (
+            <div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
+                Suggested follow-ups
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {agent.followUps.map((q, i) => (
+                  <button
+                    key={i}
+                    className="rounded-full border bg-white px-3 py-1.5 text-[12.5px] font-medium transition-colors"
+                    style={{
+                      borderColor: FT_TEAL_BORDER,
+                      color: FT_TEAL_DARK,
+                    }}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4">
+            <HelpfulCounter count={agent.helpfulCount} />
             <a
               href="#"
               onClick={(e) => e.preventDefault()}
-              className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-semibold text-white"
-              style={{ backgroundColor: FT_TEAL_DARK }}
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground/55 transition-colors hover:text-foreground/85"
             >
-              {agent.resolutionLink.label}
+              Still need help? Open a ticket
               <ArrowRight className="h-3 w-3" strokeWidth={2.25} />
             </a>
-          )}
-        </div>
+          </div>
+        </>
       )}
+    </div>
+  );
+}
 
-      {/* Reasoning trace for this focused turn */}
-      <ReasoningExpander reasoning={reasoning} />
-
-      {/* Sources */}
-      {agent.sources.length > 0 && (
-        <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
-            Drawn from
-          </div>
-          <div className="flex flex-col gap-2">
-            {agent.sources.map((s, i) => (
-              <SourceChip key={i} source={s} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Follow-ups */}
-      {agent.followUps.length > 0 && (
-        <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
-            Suggested follow-ups
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {agent.followUps.map((q, i) => (
-              <button
-                key={i}
-                className="rounded-full border bg-white px-3 py-1.5 text-[12.5px] font-medium transition-colors"
-                style={{
-                  borderColor: FT_TEAL_BORDER,
-                  color: FT_TEAL_DARK,
-                }}
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4">
-        <HelpfulCounter count={agent.helpfulCount} />
-        <a
-          href="#"
-          onClick={(e) => e.preventDefault()}
-          className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground/55 transition-colors hover:text-foreground/85"
-        >
-          Still need help? Open a ticket
-          <ArrowRight className="h-3 w-3" strokeWidth={2.25} />
-        </a>
+function AgentTypingIndicator({ status }: { status?: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white shadow-sm"
+        style={{
+          background: `linear-gradient(135deg, ${FT_TEAL_DARK}, ${FT_TEAL})`,
+        }}
+      >
+        <Bot className="h-4 w-4" strokeWidth={2.25} />
+      </div>
+      <div
+        className="flex items-center gap-2 rounded-2xl rounded-tl-sm border bg-white px-3.5 py-2.5 shadow-sm"
+        style={{ borderColor: FT_TEAL_BORDER }}
+        aria-live="polite"
+      >
+        <span className="flex items-center gap-1">
+          <span
+            className="h-1.5 w-1.5 animate-bounce rounded-full"
+            style={{
+              backgroundColor: FT_TEAL_DARK,
+              animationDelay: "0ms",
+            }}
+          />
+          <span
+            className="h-1.5 w-1.5 animate-bounce rounded-full"
+            style={{
+              backgroundColor: FT_TEAL_DARK,
+              animationDelay: "150ms",
+            }}
+          />
+          <span
+            className="h-1.5 w-1.5 animate-bounce rounded-full"
+            style={{
+              backgroundColor: FT_TEAL_DARK,
+              animationDelay: "300ms",
+            }}
+          />
+        </span>
+        {status && (
+          <span className="text-[12.5px] font-medium text-foreground/65">
+            {status}
+          </span>
+        )}
       </div>
     </div>
   );
