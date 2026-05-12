@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { cn } from "@/lib/utils";
 import {
   ArrowRight,
   Bot,
@@ -76,7 +77,21 @@ type AgentResponse = {
   // the user picks an option.
   isClarification?: boolean;
   clarifyEyebrow?: string;
-  clarifyOptions?: string[];
+  clarifyOptions?: ClarifyOption[];
+};
+
+// Picks for the clarify scenario. Stable ids so URLs can deep-link
+// straight to a specific resolution turn (?pick=auth, etc).
+type ClarifyPickId = "auth" | "rate-limits" | "webhooks" | "api-version";
+
+type ClarifyOption = {
+  id: ClarifyPickId;
+  label: string;
+};
+
+type ResolutionTurn = {
+  agent: AgentResponse;
+  reasoning: ReasoningTrace;
 };
 
 type ReasoningTrace = {
@@ -109,6 +124,10 @@ type Scenario = {
   basic: BasicAnswer;
   // Community results rendered below the answer block.
   communityResults: { title: string; kind: SourceKind; excerpt: string; meta: string }[];
+  // Clarify scenario: focused answers shown once the user picks an
+  // option from the agent's multi-choice question. Each pick id maps
+  // to its own agent response + reasoning trace.
+  clarifyResolutions?: Record<ClarifyPickId, ResolutionTurn>;
 };
 
 const SCENARIOS: Record<ScenarioId, Scenario> = {
@@ -498,10 +517,10 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
       isClarification: true,
       clarifyEyebrow: "Quick question first",
       clarifyOptions: [
-        "Authentication / SSO",
-        "Rate limits or quotas",
-        "Webhook delivery",
-        "API version compatibility",
+        { id: "auth", label: "Authentication / SSO" },
+        { id: "rate-limits", label: "Rate limits or quotas" },
+        { id: "webhooks", label: "Webhook delivery" },
+        { id: "api-version", label: "API version compatibility" },
       ],
       // Intentionally empty — the next turn (after the user picks an option)
       // is where sources / follow-ups / helpful count materialise.
@@ -613,6 +632,178 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
         meta: "Skilljar · 52 min",
       },
     ],
+    clarifyResolutions: {
+      auth: {
+        agent: {
+          paragraphs: [
+            "Auth failures on this platform almost always trace back to one of three things: expired or rotated client credentials, an OAuth scope that no longer covers the resource you're calling, or an SSO assertion that's drifted out of sync after an IdP change.",
+            "The fastest way to disambiguate is to look at the response: 401 with a token-related error message points at credentials; 403 points at scopes; 401 with an assertion or signature error points at SSO. Run the same call with a freshly minted token from the dev console — if it succeeds, you're looking at a credential lifecycle issue rather than a platform-side regression.",
+          ],
+          diagnosticSteps: [
+            { label: "Refresh the access token and retry the failing call", status: "checked" },
+            { label: "Compare requested scopes against the current OAuth client config", status: "checked" },
+            { label: "Verify the IdP signing certificate hasn't rotated in the last 30 days", status: "checked" },
+            { label: "Check the audit log for credential changes in your tenant", status: "found" },
+          ],
+          resolution:
+            "Rotate the client secret in the integration admin panel, re-grant the missing scope, and retry. If the IdP cert has rotated, re-upload the new metadata XML on both sides.",
+          resolutionLink: { label: "Open integration admin panel" },
+          sources: [
+            { title: "Troubleshooting authentication failures", kind: "kb", meta: "KB article · 7 min read" },
+            { title: "OAuth scope reference", kind: "kb", meta: "KB article · 5 min read" },
+            { title: "IdP certificate rotation runbook", kind: "kb", meta: "KB article · 6 min read" },
+            { title: "Token expired in production — what we did", kind: "community", meta: "Accepted answer · 18 upvotes" },
+            { title: "Authentication & access control fundamentals", kind: "course", meta: "Skilljar · 4 lessons" },
+          ],
+          followUps: [
+            "How do I rotate the client secret without downtime?",
+            "Can I require MFA at the IdP layer?",
+            "What scopes does the new export endpoint need?",
+          ],
+          helpfulCount: 412,
+        },
+        reasoning: {
+          posts: 1284,
+          articles: 22,
+          courses: 4,
+          sourcesUsed: 5,
+          durationMs: 980,
+          steps: [
+            "Filtered the 3,814 integration posts to authentication-tagged threads",
+            "Ranked by accepted-answer count, recency, and admin-team upvotes",
+            "Identified the three dominant failure modes (credentials, scopes, SSO certs)",
+            "Drafted answer from the top 5 sources, prioritising the official KB",
+            "Cross-checked the resolution path against the current platform auth docs",
+          ],
+        },
+      },
+      "rate-limits": {
+        agent: {
+          paragraphs: [
+            "Rate-limit failures are usually silent — the platform returns 429 responses that downstream code mistakes for outages. The default account-level limit is 600 requests per minute per integration, with a separate 60-per-minute ceiling on write endpoints.",
+            "If the failures are bursty rather than constant, you're almost certainly above the per-minute ceiling without realising it. The fix is to add jittered exponential backoff on 429s and to batch write calls where the endpoint supports it. The X-RateLimit-* response headers tell you exactly where you stand on each call.",
+          ],
+          diagnosticSteps: [
+            { label: "Check the response status code distribution over the last 24h", status: "checked" },
+            { label: "Inspect X-RateLimit-Remaining on a representative sample of calls", status: "checked" },
+            { label: "Look for traffic bursts that cross the 60/min write ceiling", status: "found" },
+          ],
+          resolution:
+            "Add jittered exponential backoff on 429 responses and batch any write calls that fan out into more than a handful of requests. The bulk endpoints accept up to 100 records per call.",
+          resolutionLink: { label: "Open API rate limit dashboard" },
+          sources: [
+            { title: "API rate limits and retry semantics", kind: "kb", meta: "KB article · 5 min read" },
+            { title: "Bulk endpoints reference", kind: "kb", meta: "KB article · 8 min read" },
+            { title: "Recommended retry patterns", kind: "kb", meta: "KB article · 4 min read" },
+            { title: "Mystery 429s during nightly sync — solved", kind: "community", meta: "Accepted answer · 24 upvotes" },
+            { title: "Building reliable integrations", kind: "course", meta: "Skilljar · 6 lessons" },
+          ],
+          followUps: [
+            "Can I request a higher rate-limit ceiling?",
+            "What's the right retry budget for writes?",
+            "Do bulk endpoints count as one call or many?",
+          ],
+          helpfulCount: 318,
+        },
+        reasoning: {
+          posts: 942,
+          articles: 18,
+          courses: 4,
+          sourcesUsed: 5,
+          durationMs: 870,
+          steps: [
+            "Filtered to rate-limit and 429-tagged threads from the last 12 months",
+            "Confirmed the per-minute and per-endpoint ceilings against current platform docs",
+            "Identified the bulk-endpoint and backoff patterns as the dominant fix",
+            "Drafted answer from the top 5 sources, prioritising official rate-limit reference",
+          ],
+        },
+      },
+      webhooks: {
+        agent: {
+          paragraphs: [
+            "Webhook delivery failures fall into three buckets: TLS / certificate issues at the consumer endpoint, signature verification mismatches after a signing-key rotation, and consumer endpoints returning a non-2xx response within the retry window. Each one looks distinct in the delivery log.",
+            "Start with the platform's delivery log filtered to your endpoint URL. If you see lots of `connect_error` rows, that's TLS. `signature_invalid` means the consumer is using a stale signing secret. `non_2xx` means the consumer accepted the request but returned an error — that's almost always a bug in the handler, not in delivery.",
+          ],
+          diagnosticSteps: [
+            { label: "Filter the delivery log to the failing webhook endpoint", status: "checked" },
+            { label: "Group failures by error type (connect_error / signature_invalid / non_2xx)", status: "checked" },
+            { label: "Check whether the signing secret was rotated in the last 14 days", status: "found" },
+          ],
+          resolution:
+            "Re-fetch the current signing secret from the integration admin panel and redeploy the verifier. For TLS issues, confirm your endpoint accepts TLS 1.2+ and the certificate chain is complete.",
+          resolutionLink: { label: "Open webhook delivery log" },
+          sources: [
+            { title: "Webhook delivery best practices", kind: "kb", meta: "KB article · 9 min read" },
+            { title: "Signature verification reference", kind: "kb", meta: "KB article · 6 min read" },
+            { title: "Webhook deliveries stopped after the platform update", kind: "community", meta: "14 replies · this week" },
+            { title: "Idempotent webhook consumer patterns", kind: "community", meta: "Accepted answer · 19 upvotes" },
+            { title: "Building reliable integrations", kind: "course", meta: "Skilljar · 6 lessons" },
+          ],
+          followUps: [
+            "How do I make my webhook consumer idempotent?",
+            "What's the retry schedule for failed deliveries?",
+            "Can I replay a failed delivery from the log?",
+          ],
+          helpfulCount: 286,
+        },
+        reasoning: {
+          posts: 716,
+          articles: 14,
+          courses: 4,
+          sourcesUsed: 5,
+          durationMs: 910,
+          steps: [
+            "Filtered to webhook-tagged threads from the last 12 months",
+            "Grouped by reported error type (TLS, signature, non-2xx) to find dominant patterns",
+            "Cross-referenced the recent platform update notes for signing-secret changes",
+            "Drafted answer from the top 5 sources, prioritising the delivery-best-practices KB",
+          ],
+        },
+      },
+      "api-version": {
+        agent: {
+          paragraphs: [
+            "Field-shape mismatches and unexpected 400s after a working integration suddenly breaking are usually a sign that the API version you're calling has changed. Each integration pins a version when it's created; once that version is sunset, calls automatically roll forward to the current version, and any breaking changes between them surface as runtime errors.",
+            "Check the `X-API-Version` header on a working historical response and compare it to today's. If they differ, you're past the sunset date. The migration guide for each version covers the specific breaking changes — most are field renames or moves from top-level to nested objects.",
+          ],
+          diagnosticSteps: [
+            { label: "Read X-API-Version on a current response and on a historical one", status: "checked" },
+            { label: "Confirm the integration's pinned version hasn't been sunset", status: "checked" },
+            { label: "Diff the version migration guides for any field-shape changes", status: "found" },
+          ],
+          resolution:
+            "Pin the integration to the latest stable version explicitly via the integration admin panel, then update field mappings according to the v3 → v4 migration guide.",
+          resolutionLink: { label: "Open version migration guide" },
+          sources: [
+            { title: "API versioning policy", kind: "kb", meta: "KB article · 4 min read" },
+            { title: "v3 → v4 migration guide", kind: "kb", meta: "KB article · 12 min read" },
+            { title: "Version sunset schedule", kind: "kb", meta: "KB article · 2 min read" },
+            { title: "Caught off-guard by the v4 cutover — lessons learned", kind: "community", meta: "Accepted answer · 22 upvotes" },
+            { title: "Building reliable integrations", kind: "course", meta: "Skilljar · 6 lessons" },
+          ],
+          followUps: [
+            "How long is the deprecation window for each version?",
+            "Can I subscribe to version sunset announcements?",
+            "What's changed between v3 and v4 specifically?",
+          ],
+          helpfulCount: 247,
+        },
+        reasoning: {
+          posts: 532,
+          articles: 16,
+          courses: 4,
+          sourcesUsed: 5,
+          durationMs: 820,
+          steps: [
+            "Filtered to version-related threads from the last 18 months",
+            "Cross-checked the platform's current sunset schedule",
+            "Identified the v3 → v4 cutover as the most likely recent break",
+            "Drafted answer from the top 5 sources, prioritising the migration guide",
+          ],
+        },
+      },
+    },
   },
 };
 
@@ -625,13 +816,19 @@ type Mode = "current" | "forethought";
 export function ForethoughtDemo({
   initialScenario = "sso",
   initialMode = "forethought",
+  initialPick = null,
 }: {
   initialScenario?: ScenarioId;
   initialMode?: Mode;
+  initialPick?: ClarifyPickId | null;
 } = {}) {
   const [scenarioId, setScenarioId] = useState<ScenarioId>(initialScenario);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [thinking, setThinking] = useState(false);
+  // Clarify scenario — which option the user picked, if any.
+  const [pickedOption, setPickedOption] = useState<ClarifyPickId | null>(
+    initialScenario === "clarify" ? initialPick : null
+  );
 
   // 400ms thinking state when scenario or mode changes — sells the
   // "actually working" feel without the demo-breaking risk of real latency.
@@ -641,11 +838,17 @@ export function ForethoughtDemo({
     return () => clearTimeout(t);
   }, [scenarioId, mode]);
 
+  // Reset the clarify pick when leaving the clarify scenario so stale
+  // state can't bleed into the others.
+  useEffect(() => {
+    if (scenarioId !== "clarify") setPickedOption(null);
+  }, [scenarioId]);
+
   const scenario = SCENARIOS[scenarioId];
 
   // Demo controls (scenario picker + mode toggle) live in the debug dock —
   // intentionally not on the page so the surface reads as production UI
-  // during a screenshare. The dock deep-links via ?scenario= and ?mode=.
+  // during a screenshare. The dock deep-links via ?scenario=, ?mode=, ?pick=.
   return (
     <div className="mx-auto w-full max-w-[1080px] px-4 pb-20 pt-7 sm:px-5 md:px-7 md:pt-9">
       <SearchBar query={scenario.query} />
@@ -654,7 +857,11 @@ export function ForethoughtDemo({
         {thinking ? (
           <ThinkingBlock mode={mode} />
         ) : mode === "forethought" ? (
-          <ForethoughtAnswer scenario={scenario} />
+          <ForethoughtAnswer
+            scenario={scenario}
+            pickedOption={scenarioId === "clarify" ? pickedOption : null}
+            onPick={setPickedOption}
+          />
         ) : (
           <CurrentAiAnswer scenario={scenario} />
         )}
@@ -941,8 +1148,20 @@ function BasicHelpfulFeedback() {
 // Forethought Community Agent — the "after" state
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ForethoughtAnswer({ scenario }: { scenario: Scenario }) {
+function ForethoughtAnswer({
+  scenario,
+  pickedOption,
+  onPick,
+}: {
+  scenario: Scenario;
+  pickedOption?: ClarifyPickId | null;
+  onPick?: (id: ClarifyPickId) => void;
+}) {
   const { agent, reasoning } = scenario;
+  const resolution =
+    pickedOption && scenario.clarifyResolutions?.[pickedOption];
+  const pickedLabel =
+    pickedOption && agent.clarifyOptions?.find((o) => o.id === pickedOption)?.label;
 
   return (
     <section
@@ -1071,30 +1290,67 @@ function ForethoughtAnswer({ scenario }: { scenario: Scenario }) {
                 </div>
               )}
               <div className="flex flex-col gap-2">
-                {agent.clarifyOptions.map((opt, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 text-left text-[13.5px] font-semibold transition-colors hover:bg-white/70"
-                    style={{
-                      borderColor: FT_TEAL_BORDER,
-                      color: FT_TEAL_DARK,
-                    }}
-                  >
-                    <span>{opt}</span>
-                    <ArrowRight
-                      className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5"
-                      strokeWidth={2.25}
-                    />
-                  </button>
-                ))}
+                {agent.clarifyOptions.map((opt) => {
+                  const active = pickedOption === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => onPick?.(opt.id)}
+                      aria-pressed={active}
+                      className={cn(
+                        "group flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left text-[13.5px] font-semibold transition-colors",
+                        active
+                          ? "shadow-sm"
+                          : "bg-white hover:bg-white/70"
+                      )}
+                      style={
+                        active
+                          ? {
+                              borderColor: FT_TEAL_DARK,
+                              backgroundColor: FT_TEAL_DARK,
+                              color: "white",
+                            }
+                          : {
+                              borderColor: FT_TEAL_BORDER,
+                              color: FT_TEAL_DARK,
+                            }
+                      }
+                    >
+                      <span className="flex items-center gap-2">
+                        {active && (
+                          <Check className="h-3.5 w-3.5" strokeWidth={2.75} />
+                        )}
+                        {opt.label}
+                      </span>
+                      <ArrowRight
+                        className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5"
+                        strokeWidth={2.25}
+                      />
+                    </button>
+                  );
+                })}
               </div>
               <p className="text-[11.5px] text-foreground/55">
-                Picking one narrows the search and lets me draft a focused
-                answer with the right sources.
+                {pickedOption
+                  ? "Pick a different option to see the focused answer for that area."
+                  : "Picking one narrows the search and lets me draft a focused answer with the right sources."}
               </p>
             </div>
           )}
+
+        {/* Second turn — focused resolution after the user picks an option.
+            Renders as a chat-style continuation: a user message bubble
+            with the chosen label, then the agent's follow-up answer
+            (paragraphs, diagnostic steps, resolution, sources, follow-ups,
+            helpful counter). */}
+        {agent.isClarification && resolution && pickedLabel && (
+          <ResolutionTurn
+            pickedLabel={pickedLabel}
+            agent={resolution.agent}
+            reasoning={resolution.reasoning}
+          />
+        )}
 
         {/* Escalation — refund scenario */}
         {agent.isEscalation && (
@@ -1166,30 +1422,205 @@ function ForethoughtAnswer({ scenario }: { scenario: Scenario }) {
           </div>
         )}
 
-        {/* Footer — feedback + escalation link. The helpful counter is
-            suppressed in the clarification scenario because no answer has
-            been given yet to vote on. */}
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4">
-          {agent.isClarification ? (
-            <span className="text-[12px] font-medium text-foreground/55">
-              Pick an option above to get a focused answer
-            </span>
-          ) : (
-            <HelpfulCounter count={agent.helpfulCount} />
-          )}
-          {!agent.isEscalation && !agent.isClarification && (
+        {/* Footer — feedback + escalation link. In the clarify scenario:
+              • Before a pick — show a soft hint (no helpful counter yet).
+              • After a pick — the resolution turn renders its own footer,
+                so we suppress this one entirely. */}
+        {!(agent.isClarification && resolution) && (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4">
+            {agent.isClarification ? (
+              <span className="text-[12px] font-medium text-foreground/55">
+                Pick an option above to get a focused answer
+              </span>
+            ) : (
+              <HelpfulCounter count={agent.helpfulCount} />
+            )}
+            {!agent.isEscalation && !agent.isClarification && (
+              <a
+                href="#"
+                onClick={(e) => e.preventDefault()}
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground/55 transition-colors hover:text-foreground/85"
+              >
+                Still need help? Open a ticket
+                <ArrowRight className="h-3 w-3" strokeWidth={2.25} />
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* Second-turn renderer for the clarify scenario. Sits inside the
+   ForethoughtAnswer card after the user picks an option, so the whole
+   conversation reads as a single agent thread. Renders a "user picked
+   X" message, then the focused agent response (paragraphs +
+   diagnostic steps + resolution + sources + follow-ups + helpful
+   counter), reusing the existing visual primitives. */
+function ResolutionTurn({
+  pickedLabel,
+  agent,
+  reasoning,
+}: {
+  pickedLabel: string;
+  agent: AgentResponse;
+  reasoning: ReasoningTrace;
+}) {
+  return (
+    <div className="mt-5 flex flex-col gap-4 border-t border-dashed border-black/[0.08] pt-5">
+      {/* User pick — right-aligned chat bubble */}
+      <div className="flex items-start justify-end gap-3">
+        <div
+          className="max-w-[420px] rounded-2xl rounded-tr-sm px-4 py-2.5 text-[13.5px] font-medium text-white shadow-sm"
+          style={{ backgroundColor: FT_TEAL_DARK }}
+        >
+          {pickedLabel}
+        </div>
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-foreground/85 text-[11px] font-semibold text-background">
+          You
+        </div>
+      </div>
+
+      {/* Agent's focused follow-up — paragraphs */}
+      <div className="flex flex-col gap-2.5">
+        {agent.paragraphs.map((p, i) => (
+          <p key={i} className="text-[14.5px] leading-[1.6] text-foreground/85">
+            {p}
+          </p>
+        ))}
+      </div>
+
+      {/* Diagnostic steps */}
+      {agent.diagnosticSteps && agent.diagnosticSteps.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-xl border border-black/[0.05] bg-[#FAFBFC] p-4">
+          <div
+            className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]"
+            style={{ color: FT_TEAL_DARK }}
+          >
+            <Workflow className="h-3 w-3" strokeWidth={2.25} />
+            What I checked
+          </div>
+          <ol className="flex flex-col gap-1.5">
+            {agent.diagnosticSteps.map((step, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-2.5 text-[13.5px] leading-[1.5] text-foreground/85"
+              >
+                <span
+                  className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10.5px] font-semibold tabular-nums text-white"
+                  style={{
+                    backgroundColor:
+                      step.status === "found" ? "#F59E0B" : FT_TEAL,
+                  }}
+                >
+                  {step.status === "found" ? (
+                    <Zap className="h-2.5 w-2.5" strokeWidth={2.5} />
+                  ) : (
+                    <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                  )}
+                </span>
+                <span>
+                  <span
+                    className="mr-1.5 font-semibold tabular-nums"
+                    style={{ color: FT_TEAL_DARK }}
+                  >
+                    {i + 1}.
+                  </span>
+                  {step.label}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Resolution box */}
+      {agent.resolution && (
+        <div
+          className="flex flex-col gap-2 rounded-xl border p-4"
+          style={{
+            borderColor: FT_TEAL_BORDER,
+            backgroundColor: FT_TEAL_TINT,
+          }}
+        >
+          <div
+            className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]"
+            style={{ color: FT_TEAL_DARK }}
+          >
+            <Lightbulb className="h-3 w-3" strokeWidth={2.25} />
+            Resolution
+          </div>
+          <p className="text-[13.5px] leading-[1.6] text-foreground/85">
+            {agent.resolution}
+          </p>
+          {agent.resolutionLink && (
             <a
               href="#"
               onClick={(e) => e.preventDefault()}
-              className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground/55 transition-colors hover:text-foreground/85"
+              className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-semibold text-white"
+              style={{ backgroundColor: FT_TEAL_DARK }}
             >
-              Still need help? Open a ticket
+              {agent.resolutionLink.label}
               <ArrowRight className="h-3 w-3" strokeWidth={2.25} />
             </a>
           )}
         </div>
+      )}
+
+      {/* Reasoning trace for this focused turn */}
+      <ReasoningExpander reasoning={reasoning} />
+
+      {/* Sources */}
+      {agent.sources.length > 0 && (
+        <div>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
+            Drawn from
+          </div>
+          <div className="flex flex-col gap-2">
+            {agent.sources.map((s, i) => (
+              <SourceChip key={i} source={s} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Follow-ups */}
+      {agent.followUps.length > 0 && (
+        <div>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
+            Suggested follow-ups
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {agent.followUps.map((q, i) => (
+              <button
+                key={i}
+                className="rounded-full border bg-white px-3 py-1.5 text-[12.5px] font-medium transition-colors"
+                style={{
+                  borderColor: FT_TEAL_BORDER,
+                  color: FT_TEAL_DARK,
+                }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4">
+        <HelpfulCounter count={agent.helpfulCount} />
+        <a
+          href="#"
+          onClick={(e) => e.preventDefault()}
+          className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground/55 transition-colors hover:text-foreground/85"
+        >
+          Still need help? Open a ticket
+          <ArrowRight className="h-3 w-3" strokeWidth={2.25} />
+        </a>
       </div>
-    </section>
+    </div>
   );
 }
 

@@ -107,6 +107,21 @@ function forethoughtHref(scenario: Scenario, mode: Mode) {
   return `/forethought?scenario=${scenario}&mode=${mode}`;
 }
 
+// Pick deep-links for the clarify scenario — each lands directly on the
+// focused resolution turn so the demo can jump to the "end result".
+type ClarifyPick = "auth" | "rate-limits" | "webhooks" | "api-version";
+
+const CLARIFY_PICK_LABELS: Record<ClarifyPick, string> = {
+  auth: "Authentication / SSO",
+  "rate-limits": "Rate limits or quotas",
+  webhooks: "Webhook delivery",
+  "api-version": "API version compatibility",
+};
+
+function clarifyPickHref(pick: ClarifyPick) {
+  return `/forethought?scenario=clarify&mode=forethought&pick=${pick}`;
+}
+
 export function DebugDock() {
   const [open, setOpen] = useState(false);
   const [scenario, setScenario] = useState<Scenario>("sso");
@@ -216,6 +231,28 @@ function ForethoughtSection({
           </a>
         ))}
       </div>
+
+      {/* Clarify-only — jump straight to a specific resolution turn */}
+      {scenario === "clarify" && (
+        <div className="mt-3 flex flex-col gap-1">
+          <span className="text-[9.5px] font-bold uppercase tracking-wider text-black/65">
+            Clarification picks
+          </span>
+          {(Object.keys(CLARIFY_PICK_LABELS) as ClarifyPick[]).map((pick) => (
+            <a
+              key={pick}
+              href={clarifyPickHref(pick)}
+              className="flex items-center justify-between rounded border border-amber-500/40 bg-white px-2.5 py-1.5 text-[10.5px] font-bold text-black transition-colors hover:bg-amber-200"
+            >
+              <span>↳ {CLARIFY_PICK_LABELS[pick]}</span>
+              <ExternalLink
+                className="h-2.5 w-2.5 text-black/55"
+                strokeWidth={2.5}
+              />
+            </a>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

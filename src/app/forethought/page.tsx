@@ -12,15 +12,23 @@ import { SearchProvider } from "@/components/search-context";
 // surface and the Forethought Community Agent block via the controls
 // at the top of the page.
 //
-// Optional ?scenario=sso|api|refund|clarify and ?mode=current|forethought
-// query params let the debug dock deep-link into a specific demo state.
+// Optional ?scenario=sso|api|refund|clarify, ?mode=current|forethought,
+// and ?pick=auth|rate-limits|webhooks|api-version (clarify only) query
+// params let the debug dock deep-link into a specific demo state.
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 type Scenario = "sso" | "api" | "refund" | "clarify";
 type Mode = "current" | "forethought";
+type ClarifyPick = "auth" | "rate-limits" | "webhooks" | "api-version";
 
 const SCENARIOS: ReadonlyArray<Scenario> = ["sso", "api", "refund", "clarify"];
+const CLARIFY_PICKS: ReadonlyArray<ClarifyPick> = [
+  "auth",
+  "rate-limits",
+  "webhooks",
+  "api-version",
+];
 const MODES: ReadonlyArray<Mode> = ["current", "forethought"];
 
 export const metadata = {
@@ -35,6 +43,7 @@ export default async function ForethoughtPage({
   const sp = await searchParams;
   const rawScenario = typeof sp.scenario === "string" ? sp.scenario : null;
   const rawMode = typeof sp.mode === "string" ? sp.mode : null;
+  const rawPick = typeof sp.pick === "string" ? sp.pick : null;
   const initialScenario =
     rawScenario && (SCENARIOS as ReadonlyArray<string>).includes(rawScenario)
       ? (rawScenario as Scenario)
@@ -43,6 +52,13 @@ export default async function ForethoughtPage({
     rawMode && (MODES as ReadonlyArray<string>).includes(rawMode)
       ? (rawMode as Mode)
       : "forethought";
+  // Pick only applies to the clarify scenario — ignored elsewhere.
+  const initialPick =
+    initialScenario === "clarify" &&
+    rawPick &&
+    (CLARIFY_PICKS as ReadonlyArray<string>).includes(rawPick)
+      ? (rawPick as ClarifyPick)
+      : null;
 
   return (
     <SearchProvider>
@@ -53,6 +69,7 @@ export default async function ForethoughtPage({
             <ForethoughtDemo
               initialScenario={initialScenario}
               initialMode={initialMode}
+              initialPick={initialPick}
             />
           </main>
         </div>
