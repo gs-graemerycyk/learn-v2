@@ -12,15 +12,15 @@ import { SearchProvider } from "@/components/search-context";
 // surface and the Forethought Community Agent block via the controls
 // at the top of the page.
 //
-// Optional ?scenario=sso|api|refund and ?mode=current|forethought query
-// params let the debug dock deep-link into a specific demo state.
+// Optional ?scenario=sso|api|refund|clarify and ?mode=current|forethought
+// query params let the debug dock deep-link into a specific demo state.
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
-type Scenario = "sso" | "api" | "refund";
+type Scenario = "sso" | "api" | "refund" | "clarify";
 type Mode = "current" | "forethought";
 
-const SCENARIOS: ReadonlyArray<Scenario> = ["sso", "api", "refund"];
+const SCENARIOS: ReadonlyArray<Scenario> = ["sso", "api", "refund", "clarify"];
 const MODES: ReadonlyArray<Mode> = ["current", "forethought"];
 
 export const metadata = {

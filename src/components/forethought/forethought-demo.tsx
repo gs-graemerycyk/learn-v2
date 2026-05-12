@@ -70,6 +70,13 @@ type AgentResponse = {
   // big "Connect you with our team" affordance.
   isEscalation?: boolean;
   escalationCopy?: string;
+  // Clarification flow: when true, the agent shows a multiple-choice
+  // disambiguation block instead of answering. Sources, follow-ups and
+  // the helpful counter are hidden — they appear on the next turn once
+  // the user picks an option.
+  isClarification?: boolean;
+  clarifyEyebrow?: string;
+  clarifyOptions?: string[];
 };
 
 type ReasoningTrace = {
@@ -91,7 +98,7 @@ type BasicAnswer = {
   sources: Source[];
 };
 
-type ScenarioId = "sso" | "api" | "refund";
+type ScenarioId = "sso" | "api" | "refund" | "clarify";
 
 type Scenario = {
   id: ScenarioId;
@@ -477,6 +484,133 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
         excerpt:
           "Answers to the most common billing questions — payment methods, invoice corrections, plan changes mid-cycle, and refund eligibility.",
         meta: "Official KB · updated March 2026",
+      },
+    ],
+  },
+  clarify: {
+    id: "clarify",
+    label: "Asks for clarification — ambiguous integration question",
+    query: "My integration keeps failing",
+    agent: {
+      paragraphs: [
+        "Integrations can fail for a few different reasons — happy to dig in once I know which area you're hitting. To save you the wrong answer first, could you point me at the one that best matches what you're seeing?",
+      ],
+      isClarification: true,
+      clarifyEyebrow: "Quick question first",
+      clarifyOptions: [
+        "Authentication / SSO",
+        "Rate limits or quotas",
+        "Webhook delivery",
+        "API version compatibility",
+      ],
+      // Intentionally empty — the next turn (after the user picks an option)
+      // is where sources / follow-ups / helpful count materialise.
+      sources: [],
+      followUps: [],
+      helpfulCount: 0,
+    },
+    reasoning: {
+      posts: 3814,
+      articles: 64,
+      courses: 9,
+      sourcesUsed: 0,
+      durationMs: 680,
+      steps: [
+        "Searched 3,814 community posts, 64 KB articles, 9 courses",
+        "Detected 4 distinct integration failure modes in the top results — no dominant match",
+        "Confidence below threshold to draft a single answer without disambiguating first",
+        "Holding source synthesis until the user picks the failure mode",
+      ],
+    },
+    basic: {
+      bullets: [
+        {
+          text:
+            "Integration failures most often trace back to authentication errors — expired tokens, mis-scoped OAuth clients, or SSO assertion mismatches after an IdP config change.",
+          citation: "Troubleshooting authentication failures",
+        },
+        {
+          text:
+            "Rate limits and quotas are the next most common cause — bursts above the per-minute allowance silently return 429s that can look like outages downstream.",
+          citation: "API rate limits and retry semantics",
+        },
+        {
+          text:
+            "Webhook delivery failures usually fall into three buckets: TLS/certificate problems, signature verification mismatches, and consumer endpoints returning non-2xx within the retry window.",
+          citation: "Webhook delivery best practices",
+        },
+        {
+          text:
+            "Breaking changes between API versions can manifest as field-shape mismatches even when authentication and rate limits look healthy — check the version pinned in your client.",
+          citation: "API versioning policy",
+        },
+        {
+          text:
+            "Less commonly, environment drift (sandbox vs production endpoints, stale base URLs) is the root cause once auth, rate limits, and webhooks have all been ruled out.",
+          citation: "Environment configuration checklist",
+        },
+      ],
+      sources: [
+        {
+          title: "Troubleshooting authentication failures",
+          kind: "kb",
+          meta: "KB article · 7 min read",
+        },
+        {
+          title: "API rate limits and retry semantics",
+          kind: "kb",
+          meta: "KB article · 5 min read",
+        },
+        {
+          title: "Webhook delivery best practices",
+          kind: "kb",
+          meta: "KB article · 9 min read",
+        },
+        {
+          title: "API versioning policy",
+          kind: "kb",
+          meta: "KB article · 4 min read",
+        },
+        {
+          title: "Common integration pitfalls — what we've seen",
+          kind: "community",
+          meta: "23 replies · pinned by admin",
+        },
+        {
+          title: "Building reliable integrations",
+          kind: "course",
+          meta: "Skilljar · 6 lessons",
+        },
+      ],
+    },
+    communityResults: [
+      {
+        title: "Common integration pitfalls — what we've seen",
+        kind: "community",
+        excerpt:
+          "After triaging 200+ integration issues last year, here are the four buckets they fall into and the fastest way to diagnose each. Auth first, then rate limits, then webhooks, then version mismatches.",
+        meta: "23 replies · pinned by admin",
+      },
+      {
+        title: "Troubleshooting authentication failures",
+        kind: "kb",
+        excerpt:
+          "Step-by-step guide for expired tokens, mis-scoped OAuth clients, and SSO assertion mismatches. Includes a flow chart for narrowing down where the failure is happening.",
+        meta: "Official KB · updated March 2026",
+      },
+      {
+        title: "Webhook deliveries stopped after the platform update",
+        kind: "community",
+        excerpt:
+          "Anyone else seeing webhook deliveries return 401s post-upgrade? Looks like the signature header rotation got bumped to a new format and our verifier hadn't caught up.",
+        meta: "14 replies · this week",
+      },
+      {
+        title: "Building reliable integrations",
+        kind: "course",
+        excerpt:
+          "A 6-lesson Skilljar course covering auth patterns, rate-limit-aware retry logic, idempotent webhook consumers, and version-pinning strategy.",
+        meta: "Skilljar · 52 min",
       },
     ],
   },
@@ -914,6 +1048,54 @@ function ForethoughtAnswer({ scenario }: { scenario: Scenario }) {
           </div>
         )}
 
+        {/* Clarification — agent asks a multi-choice question rather than
+            guessing at an ambiguous query. Sources / follow-ups / helpful
+            count are intentionally hidden — they appear on the next turn. */}
+        {agent.isClarification &&
+          agent.clarifyOptions &&
+          agent.clarifyOptions.length > 0 && (
+            <div
+              className="mt-4 flex flex-col gap-2.5 rounded-xl border p-4"
+              style={{
+                borderColor: FT_TEAL_BORDER,
+                backgroundColor: FT_TEAL_TINT,
+              }}
+            >
+              {agent.clarifyEyebrow && (
+                <div
+                  className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]"
+                  style={{ color: FT_TEAL_DARK }}
+                >
+                  <Lightbulb className="h-3 w-3" strokeWidth={2.25} />
+                  {agent.clarifyEyebrow}
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                {agent.clarifyOptions.map((opt, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 text-left text-[13.5px] font-semibold transition-colors hover:bg-white/70"
+                    style={{
+                      borderColor: FT_TEAL_BORDER,
+                      color: FT_TEAL_DARK,
+                    }}
+                  >
+                    <span>{opt}</span>
+                    <ArrowRight
+                      className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5"
+                      strokeWidth={2.25}
+                    />
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11.5px] text-foreground/55">
+                Picking one narrows the search and lets me draft a focused
+                answer with the right sources.
+              </p>
+            </div>
+          )}
+
         {/* Escalation — refund scenario */}
         {agent.isEscalation && (
           <div
@@ -945,8 +1127,9 @@ function ForethoughtAnswer({ scenario }: { scenario: Scenario }) {
         {/* How I got here — reasoning trace */}
         <ReasoningExpander reasoning={reasoning} />
 
-        {/* Source chips */}
-        {agent.sources.length > 0 && (
+        {/* Source chips — hidden in the clarification scenario, since no
+            sources have been retrieved yet on this turn. */}
+        {!agent.isClarification && agent.sources.length > 0 && (
           <div className="mt-4">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
               Drawn from
@@ -959,8 +1142,9 @@ function ForethoughtAnswer({ scenario }: { scenario: Scenario }) {
           </div>
         )}
 
-        {/* Follow-ups */}
-        {agent.followUps.length > 0 && (
+        {/* Follow-ups — hidden in the clarification scenario; the multi-
+            choice buttons above are themselves the follow-up. */}
+        {!agent.isClarification && agent.followUps.length > 0 && (
           <div className="mt-4">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
               Suggested follow-ups
@@ -982,10 +1166,18 @@ function ForethoughtAnswer({ scenario }: { scenario: Scenario }) {
           </div>
         )}
 
-        {/* Footer — feedback + escalation link */}
+        {/* Footer — feedback + escalation link. The helpful counter is
+            suppressed in the clarification scenario because no answer has
+            been given yet to vote on. */}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4">
-          <HelpfulCounter count={agent.helpfulCount} />
-          {!agent.isEscalation && (
+          {agent.isClarification ? (
+            <span className="text-[12px] font-medium text-foreground/55">
+              Pick an option above to get a focused answer
+            </span>
+          ) : (
+            <HelpfulCounter count={agent.helpfulCount} />
+          )}
+          {!agent.isEscalation && !agent.isClarification && (
             <a
               href="#"
               onClick={(e) => e.preventDefault()}

@@ -88,13 +88,14 @@ const ROUTES: { label: string; href: string; note: string }[] = [
 // Forethought demo deep links — the exec demo lives at /forethought and
 // is also reachable via this dock with each scenario + mode preselected.
 
-type Scenario = "sso" | "api" | "refund";
+type Scenario = "sso" | "api" | "refund" | "clarify";
 type Mode = "current" | "forethought";
 
 const SCENARIO_LABELS: Record<Scenario, string> = {
   sso: "Resolved by agent — Okta SSO",
   api: "Multi-step workflow — API broken",
   refund: "Graceful escalation — refund",
+  clarify: "Asks for clarification — ambiguous integration",
 };
 
 const MODE_LABELS: Record<Mode, string> = {
