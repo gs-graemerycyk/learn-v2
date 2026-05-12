@@ -96,6 +96,23 @@ type ClarifyOption = {
 type ResolutionTurn = {
   agent: AgentResponse;
   reasoning: ReasoningTrace;
+  // Third-turn exchanges — keyed by the follow-up question text. When
+  // the user clicks one of the agent.followUps pills, the matching
+  // exchange becomes a chat-style "user question → agent reply" turn
+  // below the resolution. Optional: pills without a matching exchange
+  // just stay non-functional.
+  followUpExchanges?: Record<string, FollowUpExchange>;
+};
+
+type FollowUpExchange = {
+  loadingText?: string;
+  agent: {
+    paragraphs: string[];
+    sources?: Source[];
+    resolution?: string;
+    resolutionLink?: { label: string };
+    helpfulCount: number;
+  };
 };
 
 type ReasoningTrace = {
@@ -696,6 +713,53 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
             "Cross-checked the resolution path against the current platform auth docs",
           ],
         },
+        followUpExchanges: {
+          "How do I rotate the client secret without downtime?": {
+            loadingText: "Finding the zero-downtime rotation procedure…",
+            agent: {
+              paragraphs: [
+                "Rotate without dropping traffic by using the dual-secret window: generate a new client secret while keeping the old one valid, redeploy your integration with the new secret, then revoke the old one once you confirm no calls are still hitting it.",
+                "On this platform, the dual-secret window stays open for 14 days by default — long enough to roll the new secret through a canary deploy and a full traffic verification before flipping the kill switch on the old one.",
+              ],
+              sources: [
+                { title: "Rotating client secrets — recommended pattern", kind: "kb", meta: "KB article · 4 min read" },
+                { title: "Dual-secret window reference", kind: "kb", meta: "KB article · 2 min read" },
+              ],
+              resolution:
+                "Generate the new secret in the integration admin panel, redeploy your integration, verify traffic with the new secret, then revoke the old one inside the 14-day window.",
+              resolutionLink: { label: "Open integration admin panel" },
+              helpfulCount: 184,
+            },
+          },
+          "Can I require MFA at the IdP layer?": {
+            loadingText: "Looking up IdP-layer MFA patterns…",
+            agent: {
+              paragraphs: [
+                "Yes — and the recommendation is to put MFA enforcement on the IdP side rather than on the community surface itself. The community login inherits whatever auth requirements your IdP applies, including MFA, conditional-access policies, and device posture checks.",
+                "If you toggle MFA at the community layer instead, you'll end up with two prompts on every login for users who already MFA'd at the IdP. Most teams turn the community-layer toggle off once they confirm the IdP is enforcing.",
+              ],
+              sources: [
+                { title: "MFA at the Okta layer — recommended patterns", kind: "kb", meta: "KB article · 5 min read" },
+                { title: "Conditional access checklist", kind: "kb", meta: "KB article · 6 min read" },
+              ],
+              helpfulCount: 96,
+            },
+          },
+          "What scopes does the new export endpoint need?": {
+            loadingText: "Pulling the export endpoint scope list…",
+            agent: {
+              paragraphs: [
+                "The new bulk export endpoint requires `export.read` for fetching exports and `export.write` if you also want to schedule new ones. Both scopes are tenant-scoped — they don't expand permissions beyond what the calling user already has.",
+                "If you're upgrading an integration that previously used the legacy `community.read` umbrella scope, drop it in favour of the two narrower scopes. The umbrella scope is deprecated for new integrations as of the v4 cutover.",
+              ],
+              sources: [
+                { title: "OAuth scope reference", kind: "kb", meta: "KB article · 5 min read" },
+                { title: "v3 → v4 migration guide", kind: "kb", meta: "KB article · 12 min read" },
+              ],
+              helpfulCount: 73,
+            },
+          },
+        },
       },
       "rate-limits": {
         agent: {
@@ -737,6 +801,51 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
             "Identified the bulk-endpoint and backoff patterns as the dominant fix",
             "Drafted answer from the top 5 sources, prioritising official rate-limit reference",
           ],
+        },
+        followUpExchanges: {
+          "Can I request a higher rate-limit ceiling?": {
+            loadingText: "Checking the rate-limit increase process…",
+            agent: {
+              paragraphs: [
+                "Yes — enterprise plans can request an account-level ceiling lift up to 2,400 requests/minute and 240/minute on writes, via the integration admin panel. Standard plans can request a temporary lift (up to 48 hours) for backfill jobs but not a permanent change.",
+                "The request reviews against your last 7 days of actual traffic to make sure the lift is sized to real demand rather than to absorb an unbounded burst.",
+              ],
+              sources: [
+                { title: "Requesting a rate-limit increase", kind: "kb", meta: "KB article · 3 min read" },
+                { title: "Plan tier reference", kind: "kb", meta: "KB article · 2 min read" },
+              ],
+              resolutionLink: { label: "Open rate-limit request form" },
+              helpfulCount: 142,
+            },
+          },
+          "What's the right retry budget for writes?": {
+            loadingText: "Looking up retry-budget guidance…",
+            agent: {
+              paragraphs: [
+                "For writes, cap at 3 retries with jittered exponential backoff starting at 250ms and capping at 8s. Beyond that you're almost always making the problem worse — the call is either going to succeed in those three attempts or it's hitting a deeper issue (auth, payload validation, downstream outage).",
+                "Idempotency keys are essential on write retries: include a stable client-generated `Idempotency-Key` header so a retry that succeeded server-side but timed out client-side doesn't create a duplicate record.",
+              ],
+              sources: [
+                { title: "Recommended retry patterns", kind: "kb", meta: "KB article · 4 min read" },
+                { title: "Idempotency keys on write endpoints", kind: "kb", meta: "KB article · 3 min read" },
+              ],
+              helpfulCount: 118,
+            },
+          },
+          "Do bulk endpoints count as one call or many?": {
+            loadingText: "Confirming bulk-endpoint accounting…",
+            agent: {
+              paragraphs: [
+                "Bulk endpoints count as a single call against your per-minute rate limit, regardless of how many records you include in the payload (up to the 100-record cap). That's the whole reason they exist — to let you fan in writes without burning your rate-limit budget.",
+                "There is a separate `bulk.requests/minute` ceiling at 60/minute, which is independent of your standard write ceiling. So a steady stream of bulk calls won't crowd out one-off writes.",
+              ],
+              sources: [
+                { title: "Bulk endpoints reference", kind: "kb", meta: "KB article · 8 min read" },
+                { title: "Rate-limit headers explained", kind: "kb", meta: "KB article · 3 min read" },
+              ],
+              helpfulCount: 87,
+            },
+          },
         },
       },
       webhooks: {
@@ -780,6 +889,50 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
             "Drafted answer from the top 5 sources, prioritising the delivery-best-practices KB",
           ],
         },
+        followUpExchanges: {
+          "How do I make my webhook consumer idempotent?": {
+            loadingText: "Pulling the idempotent-consumer pattern…",
+            agent: {
+              paragraphs: [
+                "Each delivery includes a stable `X-Webhook-Event-Id` header. Persist it the first time you process a delivery, and short-circuit on retry by checking that id against your store before processing again.",
+                "A 30-day TTL on stored event ids covers the longest plausible retry window. Anything older than that is past the platform's retry schedule and won't ever be redelivered, so you can safely expire it.",
+              ],
+              sources: [
+                { title: "Idempotent webhook consumer patterns", kind: "community", meta: "Accepted answer · 19 upvotes" },
+                { title: "Webhook event id reference", kind: "kb", meta: "KB article · 3 min read" },
+              ],
+              helpfulCount: 134,
+            },
+          },
+          "What's the retry schedule for failed deliveries?": {
+            loadingText: "Looking up the retry schedule…",
+            agent: {
+              paragraphs: [
+                "Failed deliveries retry on an exponential schedule: 30s, 2min, 10min, 30min, 1hr, 6hr, 24hr — for a total of 7 attempts over roughly 36 hours. After the final attempt, the delivery is marked permanently failed and won't be retried automatically.",
+                "Permanently failed deliveries stay in the log for 30 days so you can manually replay them once you've fixed the underlying consumer issue.",
+              ],
+              sources: [
+                { title: "Webhook delivery best practices", kind: "kb", meta: "KB article · 9 min read" },
+                { title: "Retry schedule reference", kind: "kb", meta: "KB article · 2 min read" },
+              ],
+              helpfulCount: 102,
+            },
+          },
+          "Can I replay a failed delivery from the log?": {
+            loadingText: "Checking replay availability…",
+            agent: {
+              paragraphs: [
+                "Yes — the delivery log keeps failed deliveries for 30 days, and you can replay any of them individually or in bulk from the integration admin panel. Replayed deliveries reuse the original `X-Webhook-Event-Id`, so consumers with idempotency built in will handle the replay safely.",
+                "Bulk replay is rate-limited at 100 deliveries per minute per endpoint to keep replays from starving live deliveries.",
+              ],
+              sources: [
+                { title: "Replaying failed webhook deliveries", kind: "kb", meta: "KB article · 4 min read" },
+              ],
+              resolutionLink: { label: "Open webhook delivery log" },
+              helpfulCount: 79,
+            },
+          },
+        },
       },
       "api-version": {
         agent: {
@@ -821,6 +974,52 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
             "Identified the v3 → v4 cutover as the most likely recent break",
             "Drafted answer from the top 5 sources, prioritising the migration guide",
           ],
+        },
+        followUpExchanges: {
+          "How long is the deprecation window for each version?": {
+            loadingText: "Pulling the deprecation window policy…",
+            agent: {
+              paragraphs: [
+                "Each major API version gets an 18-month deprecation window from the announcement date. During that window, the deprecated version continues to serve traffic while showing a `Sunset` response header with the cutover date.",
+                "Once the window closes, calls to the deprecated version automatically roll forward to the current version. That's usually where teams start seeing field-shape mismatches if they haven't migrated.",
+              ],
+              sources: [
+                { title: "API versioning policy", kind: "kb", meta: "KB article · 4 min read" },
+                { title: "Version sunset schedule", kind: "kb", meta: "KB article · 2 min read" },
+              ],
+              helpfulCount: 108,
+            },
+          },
+          "Can I subscribe to version sunset announcements?": {
+            loadingText: "Looking up the subscription path…",
+            agent: {
+              paragraphs: [
+                "Yes — subscribe per integration in the integration admin panel, or set a tenant-wide developer email list that gets every sunset announcement automatically. Both options push notifications at the 12-month, 6-month, 3-month, and 30-day marks before sunset.",
+                "There's also a `/changelog.rss` feed for teams that prefer to pull rather than receive emails — it covers sunset announcements alongside other API changes.",
+              ],
+              sources: [
+                { title: "Subscribing to API change announcements", kind: "kb", meta: "KB article · 3 min read" },
+                { title: "Developer email list management", kind: "kb", meta: "KB article · 2 min read" },
+              ],
+              resolutionLink: { label: "Open notification preferences" },
+              helpfulCount: 64,
+            },
+          },
+          "What's changed between v3 and v4 specifically?": {
+            loadingText: "Diffing the v3 → v4 changes…",
+            agent: {
+              paragraphs: [
+                "The biggest v3 → v4 changes are: `user.email` moved to `user.contact.email`, `post.attachments` switched from a string array to an object array with `{ url, mime, name }`, and pagination tokens are now opaque cursors rather than offset integers.",
+                "Auth scopes also tightened — the umbrella `community.read` scope is deprecated in v4 in favour of narrower per-resource scopes like `topic.read`, `user.read`, and `export.read`. Re-grant the narrower scopes before cutting over.",
+              ],
+              sources: [
+                { title: "v3 → v4 migration guide", kind: "kb", meta: "KB article · 12 min read" },
+                { title: "OAuth scope reference", kind: "kb", meta: "KB article · 5 min read" },
+                { title: "Pagination changes in v4", kind: "kb", meta: "KB article · 4 min read" },
+              ],
+              helpfulCount: 89,
+            },
+          },
         },
       },
     },
@@ -1373,6 +1572,7 @@ function ForethoughtAnswer({
             loadingText={pickedLoadingText}
             agent={resolution.agent}
             reasoning={resolution.reasoning}
+            followUpExchanges={resolution.followUpExchanges}
           />
         )}
 
@@ -1488,13 +1688,44 @@ function ResolutionTurn({
   loadingText,
   agent,
   reasoning,
+  followUpExchanges,
 }: {
   pickedLabel: string;
   loading?: boolean;
   loadingText?: string;
   agent: AgentResponse;
   reasoning: ReasoningTrace;
+  followUpExchanges?: Record<string, FollowUpExchange>;
 }) {
+  // Third-turn state — the user clicks a follow-up pill, the pills
+  // disappear, and a chat-style "user question → agent reply" turn
+  // renders below the resolution. Reset whenever the pickedLabel
+  // changes (i.e. the user picked a different clarification option).
+  const [pickedFollowUp, setPickedFollowUp] = useState<string | null>(null);
+  const [loadingFollowUp, setLoadingFollowUp] = useState(false);
+  const followUpFirstRender = useRef(true);
+
+  useEffect(() => {
+    setPickedFollowUp(null);
+    setLoadingFollowUp(false);
+    followUpFirstRender.current = true;
+  }, [pickedLabel]);
+
+  useEffect(() => {
+    if (followUpFirstRender.current) {
+      followUpFirstRender.current = false;
+      return;
+    }
+    if (pickedFollowUp) {
+      setLoadingFollowUp(true);
+      const t = setTimeout(() => setLoadingFollowUp(false), 1100);
+      return () => clearTimeout(t);
+    }
+  }, [pickedFollowUp]);
+
+  const followUpExchange =
+    pickedFollowUp && followUpExchanges?.[pickedFollowUp];
+
   return (
     <div className="mt-5 flex flex-col gap-4 border-t border-dashed border-black/[0.08] pt-5">
       {/* User pick — right-aligned chat bubble */}
@@ -1620,25 +1851,35 @@ function ResolutionTurn({
             </div>
           )}
 
-          {/* Follow-ups */}
-          {agent.followUps.length > 0 && (
+          {/* Follow-ups — clickable pills that drive the third turn.
+              Disappear once the user picks one, matching how the
+              clarification block clears on its own pick. Pills without
+              a matching follow-up exchange stay non-functional. */}
+          {!pickedFollowUp && agent.followUps.length > 0 && (
             <div>
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
                 Suggested follow-ups
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {agent.followUps.map((q, i) => (
-                  <button
-                    key={i}
-                    className="rounded-full border bg-white px-3 py-1.5 text-[12.5px] font-medium transition-colors"
-                    style={{
-                      borderColor: FT_TEAL_BORDER,
-                      color: FT_TEAL_DARK,
-                    }}
-                  >
-                    {q}
-                  </button>
-                ))}
+                {agent.followUps.map((q, i) => {
+                  const hasExchange = Boolean(followUpExchanges?.[q]);
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={
+                        hasExchange ? () => setPickedFollowUp(q) : undefined
+                      }
+                      className="rounded-full border bg-white px-3 py-1.5 text-[12.5px] font-medium transition-colors hover:bg-white/70"
+                      style={{
+                        borderColor: FT_TEAL_BORDER,
+                        color: FT_TEAL_DARK,
+                      }}
+                    >
+                      {q}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1646,6 +1887,140 @@ function ResolutionTurn({
           {/* Footer */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4">
             <HelpfulCounter count={agent.helpfulCount} />
+            <a
+              href="#"
+              onClick={(e) => e.preventDefault()}
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-foreground/55 transition-colors hover:text-foreground/85"
+            >
+              Still need help? Open a ticket
+              <ArrowRight className="h-3 w-3" strokeWidth={2.25} />
+            </a>
+          </div>
+
+          {/* Third turn — chat-style follow-up exchange */}
+          {pickedFollowUp && followUpExchange && (
+            <FollowUpTurn
+              question={pickedFollowUp}
+              loading={loadingFollowUp}
+              loadingText={followUpExchange.loadingText}
+              response={followUpExchange.agent}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* Third-turn renderer — a chat-style follow-up exchange. Renders
+   below the second-turn footer when the user clicks one of the
+   suggested follow-up pills. Mirrors the second-turn layout (user
+   bubble → typing indicator → agent reply) but is compact: just
+   paragraphs, optional sources, optional resolution, helpful
+   counter. No diagnostic steps, no reasoning expander — third-turn
+   answers are intentionally tighter than the second-turn deep dive. */
+function FollowUpTurn({
+  question,
+  loading,
+  loadingText,
+  response,
+}: {
+  question: string;
+  loading?: boolean;
+  loadingText?: string;
+  response: FollowUpExchange["agent"];
+}) {
+  return (
+    <div className="mt-2 flex flex-col gap-4 border-t border-dashed border-black/[0.08] pt-5">
+      {/* User follow-up — right-aligned chat bubble */}
+      <div className="flex items-start justify-end gap-3">
+        <div
+          className="max-w-[480px] rounded-2xl rounded-tr-sm px-4 py-2.5 text-[13.5px] font-medium text-white shadow-sm"
+          style={{ backgroundColor: FT_TEAL_DARK }}
+        >
+          {question}
+        </div>
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-foreground/85 text-[11px] font-semibold text-background">
+          You
+        </div>
+      </div>
+
+      {loading ? (
+        <AgentTypingIndicator status={loadingText} />
+      ) : (
+        <>
+          {/* Agent paragraphs */}
+          <div className="flex flex-col gap-2.5">
+            {response.paragraphs.map((p, i) => (
+              <p key={i} className="text-[14.5px] leading-[1.6] text-foreground/85">
+                {p}
+              </p>
+            ))}
+          </div>
+
+          {/* Optional resolution box */}
+          {response.resolution && (
+            <div
+              className="flex flex-col gap-2 rounded-xl border p-4"
+              style={{
+                borderColor: FT_TEAL_BORDER,
+                backgroundColor: FT_TEAL_TINT,
+              }}
+            >
+              <div
+                className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]"
+                style={{ color: FT_TEAL_DARK }}
+              >
+                <Lightbulb className="h-3 w-3" strokeWidth={2.25} />
+                Resolution
+              </div>
+              <p className="text-[13.5px] leading-[1.6] text-foreground/85">
+                {response.resolution}
+              </p>
+              {response.resolutionLink && (
+                <a
+                  href="#"
+                  onClick={(e) => e.preventDefault()}
+                  className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-semibold text-white"
+                  style={{ backgroundColor: FT_TEAL_DARK }}
+                >
+                  {response.resolutionLink.label}
+                  <ArrowRight className="h-3 w-3" strokeWidth={2.25} />
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* Optional sources */}
+          {response.sources && response.sources.length > 0 && (
+            <div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
+                Drawn from
+              </div>
+              <div className="flex flex-col gap-2">
+                {response.sources.map((s, i) => (
+                  <SourceChip key={i} source={s} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Lone resolutionLink without a resolution paragraph */}
+          {!response.resolution && response.resolutionLink && (
+            <a
+              href="#"
+              onClick={(e) => e.preventDefault()}
+              className="inline-flex w-fit items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-semibold text-white"
+              style={{ backgroundColor: FT_TEAL_DARK }}
+            >
+              {response.resolutionLink.label}
+              <ArrowRight className="h-3 w-3" strokeWidth={2.25} />
+            </a>
+          )}
+
+          {/* Footer */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4">
+            <HelpfulCounter count={response.helpfulCount} />
             <a
               href="#"
               onClick={(e) => e.preventDefault()}
