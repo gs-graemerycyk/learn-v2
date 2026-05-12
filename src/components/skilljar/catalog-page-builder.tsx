@@ -29,6 +29,8 @@ import {
   Compass,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { mockRecommendations } from "@/components/recommendations/mock-data";
+import type { RecommendationItem } from "@/components/recommendations/types";
 
 type BlockKind =
   | "html"
@@ -36,7 +38,6 @@ type BlockKind =
   | "catalog-tiles"
   | "announcement"
   | "in-progress-courses"
-  | "for-you-feed"
   | "recommended-content";
 
 type ContentScope = "courses" | "cross-product";
@@ -48,8 +49,6 @@ interface PlacedBlock {
   // Configurable knobs across the personalised blocks. Each drawer only
   // surfaces the subset that applies to its block kind.
   includeProfileLink?: boolean;
-  includeResumptions?: boolean;
-  showReasoning?: boolean;
   excludeCompleted?: boolean;
   contentScope?: ContentScope;
   maxTiles?: number;
@@ -64,10 +63,31 @@ type DrawerState =
 export function CatalogPageBuilder() {
   const [drawer, setDrawer] = useState<DrawerState>({ kind: "closed" });
   const [placed, setPlaced] = useState<PlacedBlock[]>([]);
+  // In-progress preview block — populated when the admin is in a config
+  // drawer for a personalised block. The canvas mirrors this so the
+  // admin can see their changes live (mirrors the CC builder pattern).
+  const [previewBlock, setPreviewBlock] = useState<PlacedBlock | null>(null);
 
   const openAddContent = () => setDrawer({ kind: "add-content" });
-  const closeDrawer = () => setDrawer({ kind: "closed" });
-  const openConfig = (block: BlockKind) => setDrawer({ kind: "config", block });
+  const closeDrawer = () => {
+    setDrawer({ kind: "closed" });
+    setPreviewBlock(null);
+  };
+  const openConfig = (block: BlockKind) => {
+    // Seed defaults so the canvas preview renders from first paint.
+    if (block === "recommended-content") {
+      setPreviewBlock({
+        id: "preview",
+        kind: "recommended-content",
+        sectionHeader: "Recommendations",
+        contentScope: "courses",
+        excludeCompleted: true,
+        maxTiles: 5,
+        alignment: "center",
+      });
+    }
+    setDrawer({ kind: "config", block });
+  };
 
   const handleAdd = (block: PlacedBlock) => {
     setPlaced((prev) => [...prev, block]);
@@ -91,10 +111,14 @@ export function CatalogPageBuilder() {
       {/* ── Canvas ── */}
       <div className="flex flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[760px] flex-col items-center px-6 py-12">
-          {placed.length === 0 ? (
+          {placed.length === 0 && !previewBlock ? (
             <EmptyCanvas onAdd={openAddContent} />
           ) : (
-            <PlacedCanvas blocks={placed} onAdd={openAddContent} />
+            <PlacedCanvas
+              blocks={placed}
+              previewBlock={previewBlock}
+              onAdd={openAddContent}
+            />
           )}
         </div>
       </div>
@@ -121,18 +145,18 @@ export function CatalogPageBuilder() {
             {drawer.kind === "config" && drawer.block === "in-progress-courses" && (
               <InProgressConfigDrawer onClose={closeDrawer} onAdd={handleAdd} />
             )}
-            {drawer.kind === "config" && drawer.block === "for-you-feed" && (
-              <ForYouFeedConfigDrawer onClose={closeDrawer} onAdd={handleAdd} />
-            )}
-            {drawer.kind === "config" && drawer.block === "recommended-content" && (
-              <RecommendedContentConfigDrawer
-                onClose={closeDrawer}
-                onAdd={handleAdd}
-              />
-            )}
+            {drawer.kind === "config" &&
+              drawer.block === "recommended-content" &&
+              previewBlock && (
+                <RecommendedContentConfigDrawer
+                  block={previewBlock}
+                  onChange={setPreviewBlock}
+                  onClose={closeDrawer}
+                  onAdd={handleAdd}
+                />
+              )}
             {drawer.kind === "config" &&
               drawer.block !== "in-progress-courses" &&
-              drawer.block !== "for-you-feed" &&
               drawer.block !== "recommended-content" && (
                 <GenericConfigDrawer
                   blockKind={drawer.block}
@@ -290,9 +314,11 @@ function PageWireframePreview() {
 
 function PlacedCanvas({
   blocks,
+  previewBlock,
   onAdd,
 }: {
   blocks: PlacedBlock[];
+  previewBlock: PlacedBlock | null;
   onAdd: () => void;
 }) {
   return (
@@ -300,6 +326,10 @@ function PlacedCanvas({
       {blocks.map((b) => (
         <PlacedBlockCard key={b.id} block={b} />
       ))}
+      {/* Live preview while the admin is configuring a new block */}
+      {previewBlock && (
+        <PlacedBlockCard block={previewBlock} isPreview />
+      )}
       <button
         type="button"
         onClick={onAdd}
@@ -311,15 +341,27 @@ function PlacedCanvas({
   );
 }
 
-function PlacedBlockCard({ block }: { block: PlacedBlock }) {
+function PlacedBlockCard({
+  block,
+  isPreview,
+}: {
+  block: PlacedBlock;
+  isPreview?: boolean;
+}) {
   const meta = BLOCK_META[block.kind];
   return (
-    <div className="overflow-hidden rounded-lg border border-black/10 bg-white">
+    <div
+      className={cn(
+        "overflow-hidden rounded-lg border bg-white",
+        isPreview
+          ? "border-[#0B6BCB] ring-2 ring-[#0B6BCB]/15"
+          : "border-black/10"
+      )}
+    >
       <div className="flex items-center gap-2 border-b border-black/[0.06] bg-[#F7F8FA] px-3 py-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
         {meta.icon}
         {meta.label}
-        {(block.kind === "for-you-feed" ||
-          block.kind === "recommended-content") && (
+        {block.kind === "recommended-content" && (
           <span className="rounded-full bg-[#0B6BCB] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
             New
           </span>
@@ -338,24 +380,137 @@ function PlacedBlockCard({ block }: { block: PlacedBlock }) {
               : "Courses only"}
           </span>
         )}
-      </div>
-      <div className="p-4">
-        {block.sectionHeader && (
-          <h2 className="mb-2 text-[18px] font-semibold text-foreground">
-            {block.sectionHeader}
-          </h2>
+        {isPreview && (
+          <span className="ml-auto rounded-full bg-[#0B6BCB]/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#0B6BCB]">
+            Live preview
+          </span>
         )}
-        <div className="grid grid-cols-4 gap-3">
-          {Array.from({ length: block.maxTiles ?? 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-20 rounded border border-black/10 bg-[#F5F7FA]"
-            />
-          ))}
-        </div>
       </div>
+
+      {block.kind === "recommended-content" ? (
+        <RecommendedContentLivePreview block={block} />
+      ) : (
+        <div className="p-4">
+          {block.sectionHeader && (
+            <h2 className="mb-2 text-[18px] font-semibold text-foreground">
+              {block.sectionHeader}
+            </h2>
+          )}
+          <div className="grid grid-cols-4 gap-3">
+            {Array.from({ length: block.maxTiles ?? 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-20 rounded border border-black/10 bg-[#F5F7FA]"
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+/* ── Live preview body for the Recommended Content block ─────────── */
+
+function RecommendedContentLivePreview({ block }: { block: PlacedBlock }) {
+  const items = pickRecommendations(
+    block.contentScope ?? "courses",
+    block.maxTiles ?? 5
+  );
+
+  const alignmentClass =
+    block.alignment === "left"
+      ? "text-left"
+      : block.alignment === "right"
+        ? "text-right"
+        : "text-center";
+
+  return (
+    <div className={cn("px-5 py-4", alignmentClass)}>
+      <h2 className="text-[20px] font-bold text-foreground">
+        {block.sectionHeader || "Recommendations"}
+      </h2>
+      <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#0B6BCB]/10 px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#0B6BCB]">
+        <Sparkles className="h-2.5 w-2.5" strokeWidth={2.5} />
+        Algorithmic feed
+      </div>
+
+      <ul className="mt-4 flex flex-col gap-2 text-left">
+        {items.map((it) => (
+          <li
+            key={it.id}
+            className="flex items-start gap-3 rounded-md border border-black/[0.07] bg-white px-3 py-2.5"
+          >
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#EEF2FF] text-[10px] font-bold uppercase text-[#0B6BCB]">
+              {recoTypeShort(it.contentType)}
+            </span>
+            <div className="flex min-w-0 flex-col">
+              <span className="text-[10.5px] font-bold uppercase tracking-wide text-foreground/55">
+                {recoTypeLabel(it.contentType)}
+              </span>
+              <h4 className="truncate text-[13.5px] font-semibold text-foreground">
+                {it.title}
+              </h4>
+              <span className="truncate text-[11.5px] text-foreground/55">
+                {recoSubline(it)}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* ── Recommendation helpers ─────────────────────────────────────── */
+
+function pickRecommendations(
+  scope: ContentScope,
+  count: number
+): RecommendationItem[] {
+  const courseTypes = new Set(["course", "lesson", "learning_path"]);
+  const pool =
+    scope === "courses"
+      ? mockRecommendations.filter((r) => courseTypes.has(r.contentType))
+      : mockRecommendations;
+  return pool.slice(0, count);
+}
+
+function recoTypeLabel(type: RecommendationItem["contentType"]): string {
+  switch (type) {
+    case "course":
+      return "Course";
+    case "lesson":
+      return "Lesson";
+    case "learning_path":
+      return "Path";
+    case "question":
+      return "Question";
+    case "article":
+      return "Article";
+    case "idea":
+      return "Idea";
+    case "conversation":
+      return "Thread";
+    case "event":
+      return "Event";
+    case "product_update":
+      return "Update";
+  }
+}
+
+function recoTypeShort(type: RecommendationItem["contentType"]): string {
+  return recoTypeLabel(type).slice(0, 2).toUpperCase();
+}
+
+function recoSubline(item: RecommendationItem): string {
+  if ("category" in item && "authorName" in item)
+    return `${item.category} · ${item.authorName}`;
+  if ("date" in item && item.date) return `Event · ${item.date}`;
+  if ("version" in item && item.version) return `Release · ${item.version}`;
+  if ("estimatedTimeRemaining" in item && item.estimatedTimeRemaining)
+    return `Academy · ${item.estimatedTimeRemaining}`;
+  return "";
 }
 
 /* ── Add Content drawer ─────────────────────────────────────────── */
@@ -413,12 +568,6 @@ function AddContentDrawer({
             badge="NEW"
             preview={<RecommendedContentPreview />}
             onClick={() => onPick("recommended-content")}
-          />
-          <BlockTile
-            label="For You Feed"
-            badge="NEW"
-            preview={<ForYouPreview />}
-            onClick={() => onPick("for-you-feed")}
           />
         </div>
       </div>
@@ -501,22 +650,6 @@ function AnnouncementPreview() {
     <div className="flex h-full w-full flex-col gap-1 rounded bg-white p-2">
       <span className="h-2 w-full rounded bg-[#DCE7F7]" />
       <span className="mt-auto h-1 w-3/4 rounded bg-black/10" />
-    </div>
-  );
-}
-
-function ForYouPreview() {
-  return (
-    <div className="flex h-full w-full flex-col gap-1.5 rounded bg-white p-2">
-      <span className="flex items-center gap-1">
-        <Sparkles className="h-2 w-2 text-[#0B6BCB]" strokeWidth={2.5} />
-        <span className="h-1 w-10 rounded bg-[#0B6BCB]/70" />
-      </span>
-      <div className="grid grid-cols-3 gap-1">
-        <span className="h-5 rounded bg-gradient-to-br from-violet-200 to-indigo-200" />
-        <span className="h-5 rounded bg-gradient-to-br from-amber-100 to-rose-200" />
-        <span className="h-5 rounded bg-gradient-to-br from-emerald-100 to-sky-200" />
-      </div>
     </div>
   );
 }
@@ -685,130 +818,50 @@ function InProgressConfigDrawer({
   );
 }
 
-function ForYouFeedConfigDrawer({
-  onClose,
-  onAdd,
-}: {
-  onClose: () => void;
-  onAdd: (b: PlacedBlock) => void;
-}) {
-  const [header, setHeader] = useState("For you");
-  const [description, setDescription] = useState(
-    "Picked up where you left off, plus fresh picks from the community and academy."
-  );
-  const [includeResumptions, setIncludeResumptions] = useState(true);
-  const [showReasoning, setShowReasoning] = useState(false);
-  const [maxTiles, setMaxTiles] = useState(8);
-  const [alignment, setAlignment] = useState<"left" | "center" | "right">("left");
-
-  return (
-    <>
-      <DrawerHeader
-        title="Add For You Feed"
-        subtitle="A personalised carousel of recommendations across courses, articles, questions, ideas, events, and product updates. Resumptions pin to the front."
-        onClose={onClose}
-      />
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="mb-4 flex items-center gap-2 rounded-md border border-[#0B6BCB]/30 bg-[#EAF2FB] px-3 py-2 text-[12px] text-[#0B6BCB]">
-          <Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} />
-          <span>
-            <strong>NEW.</strong> Powered by the DCH recommendations engine.
-            Content is ranked per student.
-          </span>
-        </div>
-
-        <SectionHeading>Content</SectionHeading>
-        <TextField
-          label="Section header (optional)"
-          value={header}
-          onChange={setHeader}
-          maxLength={100}
-          help="Any text you enter here will be visible on your page as an h2."
-        />
-        <TextAreaField
-          label="Section description (optional)"
-          value={description}
-          onChange={setDescription}
-          maxLength={500}
-          help="Any text you enter here will be visible on your page as a p."
-        />
-
-        <Checkbox
-          checked={includeResumptions}
-          onChange={setIncludeResumptions}
-          label="Pin in-progress content to the front"
-          help="Surfaces the student's most recent in-progress course or lesson before recommendations. Disable if you already render an In-Progress Courses block above."
-        />
-        <Checkbox
-          checked={showReasoning}
-          onChange={setShowReasoning}
-          label="Show personalised reasoning chips"
-          help='Adds a small "Because you completed X" caption to each card. Recommended for new students; turn off once they’re familiar with the surface.'
-        />
-
-        <NumberField
-          label="Maximum number of catalog tiles"
-          value={maxTiles}
-          onChange={setMaxTiles}
-          help="If the student has no recommendations yet, this content block will be hidden."
-        />
-
-        <SectionHeading className="mt-6">Layout</SectionHeading>
-        <Radios
-          legend="Text and catalog tile alignment"
-          help="Does not apply to text within the tiles."
-          value={alignment}
-          onChange={setAlignment}
-          options={[
-            { value: "left", label: "Align left" },
-            { value: "center", label: "Align center" },
-            { value: "right", label: "Align right" },
-          ]}
-        />
-      </div>
-      <DrawerFooter
-        onCancel={onClose}
-        onAdd={() =>
-          onAdd({
-            id: cryptoId(),
-            kind: "for-you-feed",
-            sectionHeader: header || "For you",
-            includeResumptions,
-            showReasoning,
-            maxTiles,
-            alignment,
-          })
-        }
-      />
-    </>
-  );
-}
-
 function RecommendedContentConfigDrawer({
+  block,
+  onChange,
   onClose,
   onAdd,
 }: {
+  block: PlacedBlock;
+  onChange: (next: PlacedBlock) => void;
   onClose: () => void;
   onAdd: (b: PlacedBlock) => void;
 }) {
+  // Controlled component. State lives in the parent so the canvas can
+  // mirror every keystroke / toggle as a live preview.
+  //
   // Single recommendations block per the updated SJ spec. A toggle at
   // the top of the drawer picks between courses-only (the default,
-  // available to every academy) and the cross-product mix
-  // (courses + community + eventually PX content, gated to
-  // cross-product customers only).
-  const [contentScope, setContentScope] = useState<ContentScope>("courses");
-  const [header, setHeader] = useState("Recommended for you");
+  // available to every academy) and the cross-product mix (courses +
+  // community + eventually PX content, gated to cross-product
+  // customers only).
   const [description, setDescription] = useState(
     "Content chosen for this student based on their learning history and role."
   );
-  const [excludeCompleted, setExcludeCompleted] = useState(true);
-  // Number of cards shown in the rail — 3, 5, or 7 per spec.
-  const [maxTiles, setMaxTiles] = useState<3 | 5 | 7>(5);
-  const [alignment, setAlignment] = useState<"left" | "center" | "right">(
-    "center"
-  );
 
+  const contentScope = block.contentScope ?? "courses";
   const isCrossProduct = contentScope === "cross-product";
+  const header = block.sectionHeader;
+  const excludeCompleted = block.excludeCompleted ?? true;
+  const maxTiles = (block.maxTiles ?? 5) as 3 | 5 | 7;
+  const alignment = block.alignment ?? "center";
+
+  const setContentScope = (v: ContentScope) =>
+    onChange({
+      ...block,
+      contentScope: v,
+      // The completed-courses toggle doesn't apply to cross-product mode,
+      // so clear it when flipping to keep the payload clean.
+      excludeCompleted: v === "cross-product" ? undefined : (block.excludeCompleted ?? true),
+    });
+  const setHeader = (v: string) => onChange({ ...block, sectionHeader: v });
+  const setExcludeCompleted = (v: boolean) =>
+    onChange({ ...block, excludeCompleted: v });
+  const setMaxTiles = (v: 3 | 5 | 7) => onChange({ ...block, maxTiles: v });
+  const setAlignment = (v: "left" | "center" | "right") =>
+    onChange({ ...block, alignment: v });
 
   return (
     <>
@@ -837,9 +890,9 @@ function RecommendedContentConfigDrawer({
             <Compass className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
             <span>
               <strong>Cross-product customers only.</strong> Requires both
-              Skilljar Academy and Community Cloud. Will eventually include
-              Gainsight PX content. Tiles are mixed by default — there is no
-              per-source toggle.
+              Skilljar Academy and Customer Community. Will eventually
+              include Gainsight PX content. Tiles are mixed by default —
+              there is no per-source toggle.
             </span>
           </div>
         )}
@@ -902,13 +955,9 @@ function RecommendedContentConfigDrawer({
         onCancel={onClose}
         onAdd={() =>
           onAdd({
+            ...block,
             id: cryptoId(),
-            kind: "recommended-content",
             sectionHeader: header || "Recommended for you",
-            contentScope,
-            excludeCompleted: isCrossProduct ? undefined : excludeCompleted,
-            maxTiles,
-            alignment,
           })
         }
       />
@@ -1284,10 +1333,6 @@ const BLOCK_META: Record<BlockKind, { label: string; icon: React.ReactNode }> = 
   "in-progress-courses": {
     label: "In-Progress Courses",
     icon: <GraduationCap className="h-3.5 w-3.5" strokeWidth={2} />,
-  },
-  "for-you-feed": {
-    label: "For You Feed",
-    icon: <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />,
   },
   "recommended-content": {
     label: "Recommended Content",
