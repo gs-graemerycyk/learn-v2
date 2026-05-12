@@ -26,7 +26,6 @@ import {
   X,
   GraduationCap,
   Sparkles,
-  Layers,
   Compass,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -38,8 +37,9 @@ type BlockKind =
   | "announcement"
   | "in-progress-courses"
   | "for-you-feed"
-  | "recommended-courses"
   | "recommended-content";
+
+type ContentScope = "courses" | "cross-product";
 
 interface PlacedBlock {
   id: string;
@@ -51,6 +51,7 @@ interface PlacedBlock {
   includeResumptions?: boolean;
   showReasoning?: boolean;
   excludeCompleted?: boolean;
+  contentScope?: ContentScope;
   maxTiles?: number;
   alignment?: "left" | "center" | "right";
 }
@@ -123,12 +124,6 @@ export function CatalogPageBuilder() {
             {drawer.kind === "config" && drawer.block === "for-you-feed" && (
               <ForYouFeedConfigDrawer onClose={closeDrawer} onAdd={handleAdd} />
             )}
-            {drawer.kind === "config" && drawer.block === "recommended-courses" && (
-              <RecommendedCoursesConfigDrawer
-                onClose={closeDrawer}
-                onAdd={handleAdd}
-              />
-            )}
             {drawer.kind === "config" && drawer.block === "recommended-content" && (
               <RecommendedContentConfigDrawer
                 onClose={closeDrawer}
@@ -138,7 +133,6 @@ export function CatalogPageBuilder() {
             {drawer.kind === "config" &&
               drawer.block !== "in-progress-courses" &&
               drawer.block !== "for-you-feed" &&
-              drawer.block !== "recommended-courses" &&
               drawer.block !== "recommended-content" && (
                 <GenericConfigDrawer
                   blockKind={drawer.block}
@@ -325,10 +319,23 @@ function PlacedBlockCard({ block }: { block: PlacedBlock }) {
         {meta.icon}
         {meta.label}
         {(block.kind === "for-you-feed" ||
-          block.kind === "recommended-courses" ||
           block.kind === "recommended-content") && (
           <span className="rounded-full bg-[#0B6BCB] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
             New
+          </span>
+        )}
+        {block.kind === "recommended-content" && block.contentScope && (
+          <span
+            className={cn(
+              "rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
+              block.contentScope === "cross-product"
+                ? "bg-amber-100 text-amber-800"
+                : "bg-[#EAF2FB] text-[#0B6BCB]"
+            )}
+          >
+            {block.contentScope === "cross-product"
+              ? "Cross-product"
+              : "Courses only"}
           </span>
         )}
       </div>
@@ -400,12 +407,6 @@ function AddContentDrawer({
             label="In-Progress Courses"
             preview={<TilesPreview />}
             onClick={() => onPick("in-progress-courses")}
-          />
-          <BlockTile
-            label="Recommended Courses"
-            badge="NEW"
-            preview={<RecommendedCoursesPreview />}
-            onClick={() => onPick("recommended-courses")}
           />
           <BlockTile
             label="Recommended Content"
@@ -515,28 +516,6 @@ function ForYouPreview() {
         <span className="h-5 rounded bg-gradient-to-br from-violet-200 to-indigo-200" />
         <span className="h-5 rounded bg-gradient-to-br from-amber-100 to-rose-200" />
         <span className="h-5 rounded bg-gradient-to-br from-emerald-100 to-sky-200" />
-      </div>
-    </div>
-  );
-}
-
-function RecommendedCoursesPreview() {
-  // Courses-only — same shape as the Catalog/In-Progress tiles preview
-  // but tinted with the recommendations accent so it reads as a sibling
-  // rather than a duplicate of In-Progress Courses.
-  return (
-    <div className="flex h-full w-full flex-col gap-1.5 rounded bg-white p-2">
-      <span className="flex items-center gap-1">
-        <Layers className="h-2 w-2 text-[#0B6BCB]" strokeWidth={2.5} />
-        <span className="h-1 w-10 rounded bg-[#0B6BCB]/70" />
-      </span>
-      <div className="grid grid-cols-3 gap-1">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="h-5 rounded bg-gradient-to-br from-sky-100 to-indigo-200"
-          />
-        ))}
       </div>
     </div>
   );
@@ -805,99 +784,6 @@ function ForYouFeedConfigDrawer({
   );
 }
 
-function RecommendedCoursesConfigDrawer({
-  onClose,
-  onAdd,
-}: {
-  onClose: () => void;
-  onAdd: (b: PlacedBlock) => void;
-}) {
-  const [header, setHeader] = useState("Recommended for you");
-  const [description, setDescription] = useState(
-    "Courses chosen for this student based on their learning history and role."
-  );
-  const [excludeCompleted, setExcludeCompleted] = useState(true);
-  const [maxTiles, setMaxTiles] = useState(4);
-  const [alignment, setAlignment] = useState<"left" | "center" | "right">(
-    "center"
-  );
-
-  return (
-    <>
-      <DrawerHeader
-        title="Add Recommended Courses"
-        subtitle="Displays catalog tiles for courses the student is most likely to take next, ranked by the recommendations engine. Courses only — for mixed content, use Recommended Content."
-        onClose={onClose}
-      />
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="mb-4 flex items-center gap-2 rounded-md border border-[#0B6BCB]/30 bg-[#EAF2FB] px-3 py-2 text-[12px] text-[#0B6BCB]">
-          <Layers className="h-3.5 w-3.5" strokeWidth={2.5} />
-          <span>
-            <strong>NEW.</strong> Courses-only recommendations powered by the
-            DCH recommendations engine.
-          </span>
-        </div>
-
-        <SectionHeading>Content</SectionHeading>
-        <TextField
-          label="Section header (optional)"
-          value={header}
-          onChange={setHeader}
-          maxLength={100}
-          help="Any text you enter here will be visible on your page as an h2."
-        />
-        <TextAreaField
-          label="Section description (optional)"
-          value={description}
-          onChange={setDescription}
-          maxLength={500}
-          help="Any text you enter here will be visible on your page as a p."
-        />
-
-        <Checkbox
-          checked={excludeCompleted}
-          onChange={setExcludeCompleted}
-          label="Exclude courses the student has completed"
-          help="Keeps the rail focused on net-new learning. Disable if you want completed courses to resurface for retraining or refresher prompts."
-        />
-
-        <NumberField
-          label="Maximum number of catalog tiles"
-          value={maxTiles}
-          onChange={setMaxTiles}
-          help="If the student has no recommended courses yet, this content block will be hidden."
-        />
-
-        <SectionHeading className="mt-6">Layout</SectionHeading>
-        <Radios
-          legend="Text and catalog tile alignment"
-          help="Does not apply to text within the tiles."
-          value={alignment}
-          onChange={setAlignment}
-          options={[
-            { value: "left", label: "Align left" },
-            { value: "center", label: "Align center" },
-            { value: "right", label: "Align right" },
-          ]}
-        />
-      </div>
-      <DrawerFooter
-        onCancel={onClose}
-        onAdd={() =>
-          onAdd({
-            id: cryptoId(),
-            kind: "recommended-courses",
-            sectionHeader: header || "Recommended for you",
-            excludeCompleted,
-            maxTiles,
-            alignment,
-          })
-        }
-      />
-    </>
-  );
-}
-
 function RecommendedContentConfigDrawer({
   onClose,
   onAdd,
@@ -905,33 +791,60 @@ function RecommendedContentConfigDrawer({
   onClose: () => void;
   onAdd: (b: PlacedBlock) => void;
 }) {
+  // Single recommendations block per the updated SJ spec. A toggle at
+  // the top of the drawer picks between courses-only (the default,
+  // available to every academy) and the cross-product mix
+  // (courses + community + eventually PX content, gated to
+  // cross-product customers only).
+  const [contentScope, setContentScope] = useState<ContentScope>("courses");
   const [header, setHeader] = useState("Recommended for you");
   const [description, setDescription] = useState(
-    "A mix of courses and community content chosen for this student."
+    "Content chosen for this student based on their learning history and role."
   );
-  const [maxTiles, setMaxTiles] = useState(6);
+  const [excludeCompleted, setExcludeCompleted] = useState(true);
+  // Number of cards shown in the rail — 3, 5, or 7 per spec.
+  const [maxTiles, setMaxTiles] = useState<3 | 5 | 7>(5);
   const [alignment, setAlignment] = useState<"left" | "center" | "right">(
     "center"
   );
+
+  const isCrossProduct = contentScope === "cross-product";
 
   return (
     <>
       <DrawerHeader
         title="Add Recommended Content"
-        subtitle="A mixed rail of courses and community content (questions, articles, ideas, conversations) ranked together."
+        subtitle="Catalog tiles ranked for this student by the recommendations engine. Toggle the content scope to include community content alongside courses."
         onClose={onClose}
       />
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
-          <Compass className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+        <div className="mb-4 flex items-center gap-2 rounded-md border border-[#0B6BCB]/30 bg-[#EAF2FB] px-3 py-2 text-[12px] text-[#0B6BCB]">
+          <Sparkles className="h-3.5 w-3.5" strokeWidth={2.5} />
           <span>
-            <strong>Cross-product customers only.</strong> Requires both
-            Skilljar Academy and Community Cloud. Tiles are mixed by default —
-            there is no per-source toggle.
+            <strong>NEW.</strong> Powered by the DCH recommendations engine.
           </span>
         </div>
 
-        <SectionHeading>Content</SectionHeading>
+        <SectionHeading>Content scope</SectionHeading>
+        <p className="mb-3 text-[12px] leading-[1.5] text-foreground/55">
+          Pick what the engine is allowed to surface in this block. You can
+          change this any time without dropping the block.
+        </p>
+        <ContentScopeToggle value={contentScope} onChange={setContentScope} />
+
+        {isCrossProduct && (
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+            <Compass className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+            <span>
+              <strong>Cross-product customers only.</strong> Requires both
+              Skilljar Academy and Community Cloud. Will eventually include
+              Gainsight PX content. Tiles are mixed by default — there is no
+              per-source toggle.
+            </span>
+          </div>
+        )}
+
+        <SectionHeading className="mt-6">Content</SectionHeading>
         <TextField
           label="Section header (optional)"
           value={header}
@@ -947,12 +860,30 @@ function RecommendedContentConfigDrawer({
           help="Any text you enter here will be visible on your page as a p."
         />
 
-        <NumberField
-          label="Maximum number of catalog tiles"
-          value={maxTiles}
-          onChange={setMaxTiles}
-          help="If the student has no recommendations yet, this content block will be hidden."
-        />
+        {!isCrossProduct && (
+          <Checkbox
+            checked={excludeCompleted}
+            onChange={setExcludeCompleted}
+            label="Exclude courses the student has completed"
+            help="Keeps the rail focused on net-new learning. Disable if you want completed courses to resurface for retraining or refresher prompts."
+          />
+        )}
+
+        <div className="mb-4">
+          <label className="mb-1 block text-[13px] font-medium text-foreground/85">
+            Number of catalog tiles to show
+          </label>
+          <CountSegmented
+            value={maxTiles}
+            onChange={setMaxTiles}
+            options={[3, 5, 7]}
+          />
+          <p className="mt-1 text-[11.5px] text-foreground/45">
+            {isCrossProduct
+              ? "If the student has no cross-product recommendations yet, this content block will be hidden."
+              : "If the student has no recommended courses yet, this content block will be hidden."}
+          </p>
+        </div>
 
         <SectionHeading className="mt-6">Layout</SectionHeading>
         <Radios
@@ -974,12 +905,120 @@ function RecommendedContentConfigDrawer({
             id: cryptoId(),
             kind: "recommended-content",
             sectionHeader: header || "Recommended for you",
+            contentScope,
+            excludeCompleted: isCrossProduct ? undefined : excludeCompleted,
             maxTiles,
             alignment,
           })
         }
       />
     </>
+  );
+}
+
+/* Segmented control for fixed-set count picks (3/5/7). Matches the
+   visual language of the CC page builder's count toggle so the same
+   choice reads consistently across both surfaces. */
+function CountSegmented<T extends number>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: T[];
+}) {
+  return (
+    <div className="flex rounded-md border border-black/15 bg-white p-0.5">
+      {options.map((opt) => {
+        const active = value === opt;
+        return (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => onChange(opt)}
+            aria-pressed={active}
+            className={cn(
+              "flex-1 rounded px-2 py-1.5 text-[13px] font-semibold tabular-nums transition-colors",
+              active
+                ? "bg-[#0B6BCB] text-white shadow-sm"
+                : "text-foreground/65 hover:bg-black/[0.04]"
+            )}
+          >
+            {opt}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* Segmented control for the courses-only ↔ cross-product toggle.
+   Lives inline rather than reusing the radios primitive so the
+   selected state can be more visually emphatic (this is the headline
+   change in the drawer). */
+function ContentScopeToggle({
+  value,
+  onChange,
+}: {
+  value: ContentScope;
+  onChange: (v: ContentScope) => void;
+}) {
+  const options: { value: ContentScope; label: string; help: string }[] = [
+    {
+      value: "courses",
+      label: "Courses only",
+      help: "Skilljar courses ranked for this student.",
+    },
+    {
+      value: "cross-product",
+      label: "Cross-product content",
+      help: "Courses + community (and eventually PX) — cross-product customers only.",
+    },
+  ];
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {options.map((opt) => {
+        const active = value === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "flex flex-col items-start gap-1 rounded-md border px-3 py-2 text-left transition-colors",
+              active
+                ? "border-[#0B6BCB] bg-[#EAF2FB] text-[#0B6BCB] shadow-sm"
+                : "border-black/15 bg-white text-foreground/75 hover:border-black/30"
+            )}
+          >
+            <span className="flex w-full items-center justify-between text-[13px] font-semibold">
+              {opt.label}
+              <span
+                className={cn(
+                  "grid h-4 w-4 place-items-center rounded-full border-2",
+                  active
+                    ? "border-[#0B6BCB] bg-[#0B6BCB]"
+                    : "border-black/25 bg-white"
+                )}
+                aria-hidden
+              >
+                {active && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+              </span>
+            </span>
+            <span
+              className={cn(
+                "text-[11.5px] leading-[1.4]",
+                active ? "text-[#0B6BCB]/80" : "text-foreground/55"
+              )}
+            >
+              {opt.help}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1249,10 +1288,6 @@ const BLOCK_META: Record<BlockKind, { label: string; icon: React.ReactNode }> = 
   "for-you-feed": {
     label: "For You Feed",
     icon: <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />,
-  },
-  "recommended-courses": {
-    label: "Recommended Courses",
-    icon: <Layers className="h-3.5 w-3.5" strokeWidth={2} />,
   },
   "recommended-content": {
     label: "Recommended Content",
