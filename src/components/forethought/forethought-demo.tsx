@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cn } from "@/lib/utils";
 import {
   ArrowRight,
   Bot,
@@ -1336,51 +1335,28 @@ function ForethoughtAnswer({
                 </div>
               )}
               <div className="flex flex-col gap-2">
-                {agent.clarifyOptions.map((opt) => {
-                  const active = pickedOption === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => onPick?.(opt.id)}
-                      aria-pressed={active}
-                      className={cn(
-                        "group flex w-full items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left text-[13.5px] font-semibold transition-colors",
-                        active
-                          ? "shadow-sm"
-                          : "bg-white hover:bg-white/70"
-                      )}
-                      style={
-                        active
-                          ? {
-                              borderColor: FT_TEAL_DARK,
-                              backgroundColor: FT_TEAL_DARK,
-                              color: "white",
-                            }
-                          : {
-                              borderColor: FT_TEAL_BORDER,
-                              color: FT_TEAL_DARK,
-                            }
-                      }
-                    >
-                      <span className="flex items-center gap-2">
-                        {active && (
-                          <Check className="h-3.5 w-3.5" strokeWidth={2.75} />
-                        )}
-                        {opt.label}
-                      </span>
-                      <ArrowRight
-                        className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5"
-                        strokeWidth={2.25}
-                      />
-                    </button>
-                  );
-                })}
+                {agent.clarifyOptions.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onPick?.(opt.id)}
+                    className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-white px-4 py-3 text-left text-[13.5px] font-semibold transition-colors hover:bg-white/70"
+                    style={{
+                      borderColor: FT_TEAL_BORDER,
+                      color: FT_TEAL_DARK,
+                    }}
+                  >
+                    <span>{opt.label}</span>
+                    <ArrowRight
+                      className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5"
+                      strokeWidth={2.25}
+                    />
+                  </button>
+                ))}
               </div>
               <p className="text-[11.5px] text-foreground/55">
-                {pickedOption
-                  ? "Pick a different option to see the focused answer for that area."
-                  : "Picking one narrows the search and lets me draft a focused answer with the right sources."}
+                Picking one narrows the search and lets me draft a focused
+                answer with the right sources.
               </p>
             </div>
           )}
