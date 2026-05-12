@@ -13,6 +13,7 @@ import {
   Lightbulb,
   MessagesSquare,
   Search,
+  Send,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -102,6 +103,10 @@ type ResolutionTurn = {
   // below the resolution. Optional: pills without a matching exchange
   // just stay non-functional.
   followUpExchanges?: Record<string, FollowUpExchange>;
+  // Fallback used when the user types a free-text follow-up that
+  // doesn't fuzzy-match any of the curated exchanges. Tailored to the
+  // picked area so the reply still feels contextual.
+  followUpFallback?: FollowUpExchange;
 };
 
 type FollowUpExchange = {
@@ -760,6 +765,19 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
             },
           },
         },
+        followUpFallback: {
+          loadingText: "Looking into that specifically…",
+          agent: {
+            paragraphs: [
+              "Happy to dig into that specifically. The fastest way to narrow it down is to share the response you're seeing — a 401 with a token-related error message points at credentials, 403 points at scopes, and a 401 with an assertion or signature error points at SSO.",
+              "If you can paste either the failing response or the relevant client/IdP config, I can pinpoint which of the three auth failure modes is in play and tailor the fix.",
+            ],
+            sources: [
+              { title: "Troubleshooting authentication failures", kind: "kb", meta: "KB article · 7 min read" },
+            ],
+            helpfulCount: 38,
+          },
+        },
       },
       "rate-limits": {
         agent: {
@@ -845,6 +863,18 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
               ],
               helpfulCount: 87,
             },
+          },
+        },
+        followUpFallback: {
+          loadingText: "Pulling rate-limit context for that…",
+          agent: {
+            paragraphs: [
+              "Worth digging into. If you can share what `X-RateLimit-Remaining` is showing on the failing calls — and roughly what time of day they fall over — I can pinpoint whether you're hitting the per-minute ceiling, the per-endpoint write ceiling, or something more specific to your traffic shape.",
+            ],
+            sources: [
+              { title: "API rate limits and retry semantics", kind: "kb", meta: "KB article · 5 min read" },
+            ],
+            helpfulCount: 29,
           },
         },
       },
@@ -933,6 +963,18 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
             },
           },
         },
+        followUpFallback: {
+          loadingText: "Pulling webhook context for that…",
+          agent: {
+            paragraphs: [
+              "Let's narrow that down. If you check the delivery log for the timeframe when it broke, the dominant error type (connect_error, signature_invalid, or non_2xx) will tell us which of the three webhook failure modes you're hitting — and the fix path is pretty different for each.",
+            ],
+            sources: [
+              { title: "Webhook delivery best practices", kind: "kb", meta: "KB article · 9 min read" },
+            ],
+            helpfulCount: 24,
+          },
+        },
       },
       "api-version": {
         agent: {
@@ -1019,6 +1061,18 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
               ],
               helpfulCount: 89,
             },
+          },
+        },
+        followUpFallback: {
+          loadingText: "Mapping that against the version policy…",
+          agent: {
+            paragraphs: [
+              "Let's confirm the version you're pinned to first. The `X-API-Version` header on any current response will tell us — once we know that, we can map your call against the matching migration guide and pinpoint the specific field-shape or scope change you're running into.",
+            ],
+            sources: [
+              { title: "API versioning policy", kind: "kb", meta: "KB article · 4 min read" },
+            ],
+            helpfulCount: 21,
           },
         },
       },
@@ -1573,6 +1627,7 @@ function ForethoughtAnswer({
             agent={resolution.agent}
             reasoning={resolution.reasoning}
             followUpExchanges={resolution.followUpExchanges}
+            followUpFallback={resolution.followUpFallback}
           />
         )}
 
@@ -1689,6 +1744,7 @@ function ResolutionTurn({
   agent,
   reasoning,
   followUpExchanges,
+  followUpFallback,
 }: {
   pickedLabel: string;
   loading?: boolean;
@@ -1696,18 +1752,27 @@ function ResolutionTurn({
   agent: AgentResponse;
   reasoning: ReasoningTrace;
   followUpExchanges?: Record<string, FollowUpExchange>;
+  followUpFallback?: FollowUpExchange;
 }) {
-  // Third-turn state — the user clicks a follow-up pill, the pills
-  // disappear, and a chat-style "user question → agent reply" turn
-  // renders below the resolution. Reset whenever the pickedLabel
-  // changes (i.e. the user picked a different clarification option).
-  const [pickedFollowUp, setPickedFollowUp] = useState<string | null>(null);
+  // Third-turn state — either a pill click or a free-text composer
+  // submission triggers a chat-style "user question → agent reply"
+  // turn below the resolution. We track the user's displayed text and
+  // the resolved exchange separately so the bubble can show the
+  // typed input verbatim while the agent's reply comes from a
+  // curated (or fallback) exchange.
+  const [followUp, setFollowUp] = useState<{
+    questionText: string;
+    exchange: FollowUpExchange;
+  } | null>(null);
   const [loadingFollowUp, setLoadingFollowUp] = useState(false);
+  const [composerValue, setComposerValue] = useState("");
   const followUpFirstRender = useRef(true);
 
   useEffect(() => {
-    setPickedFollowUp(null);
+    // Clear all third-turn state when the clarification pick changes.
+    setFollowUp(null);
     setLoadingFollowUp(false);
+    setComposerValue("");
     followUpFirstRender.current = true;
   }, [pickedLabel]);
 
@@ -1716,15 +1781,51 @@ function ResolutionTurn({
       followUpFirstRender.current = false;
       return;
     }
-    if (pickedFollowUp) {
+    if (followUp) {
       setLoadingFollowUp(true);
       const t = setTimeout(() => setLoadingFollowUp(false), 1100);
       return () => clearTimeout(t);
     }
-  }, [pickedFollowUp]);
+  }, [followUp]);
 
-  const followUpExchange =
-    pickedFollowUp && followUpExchanges?.[pickedFollowUp];
+  // Resolve a typed input or pill click into an exchange. Tries exact
+  // match first, then a case-insensitive substring match in either
+  // direction, then falls back to the area-level fallback.
+  const resolveFollowUp = (raw: string): {
+    questionText: string;
+    exchange: FollowUpExchange;
+  } | null => {
+    const text = raw.trim();
+    if (!text) return null;
+    if (followUpExchanges?.[text]) {
+      return { questionText: text, exchange: followUpExchanges[text] };
+    }
+    const lower = text.toLowerCase();
+    for (const key of Object.keys(followUpExchanges ?? {})) {
+      const keyLower = key.toLowerCase();
+      if (keyLower.includes(lower) || lower.includes(keyLower)) {
+        return { questionText: text, exchange: followUpExchanges![key] };
+      }
+    }
+    if (followUpFallback) {
+      return { questionText: text, exchange: followUpFallback };
+    }
+    return null;
+  };
+
+  const handlePillClick = (question: string) => {
+    const resolved = resolveFollowUp(question);
+    if (resolved) setFollowUp(resolved);
+  };
+
+  const handleComposerSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const resolved = resolveFollowUp(composerValue);
+    if (resolved) {
+      setFollowUp(resolved);
+      setComposerValue("");
+    }
+  };
 
   return (
     <div className="mt-5 flex flex-col gap-4 border-t border-dashed border-black/[0.08] pt-5">
@@ -1851,36 +1952,62 @@ function ResolutionTurn({
             </div>
           )}
 
-          {/* Follow-ups — clickable pills that drive the third turn.
-              Disappear once the user picks one, matching how the
-              clarification block clears on its own pick. Pills without
-              a matching follow-up exchange stay non-functional. */}
-          {!pickedFollowUp && agent.followUps.length > 0 && (
-            <div>
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
-                Suggested follow-ups
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {agent.followUps.map((q, i) => {
-                  const hasExchange = Boolean(followUpExchanges?.[q]);
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={
-                        hasExchange ? () => setPickedFollowUp(q) : undefined
-                      }
-                      className="rounded-full border bg-white px-3 py-1.5 text-[12.5px] font-medium transition-colors hover:bg-white/70"
-                      style={{
-                        borderColor: FT_TEAL_BORDER,
-                        color: FT_TEAL_DARK,
-                      }}
-                    >
-                      {q}
-                    </button>
-                  );
-                })}
-              </div>
+          {/* Follow-ups — clickable pills and a free-text composer.
+              Both disappear once a follow-up exchange is in progress,
+              matching how the clarification block clears on its own
+              pick. */}
+          {!followUp && (
+            <div className="flex flex-col gap-3">
+              {agent.followUps.length > 0 && (
+                <div>
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/55">
+                    Suggested follow-ups
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {agent.followUps.map((q, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => handlePillClick(q)}
+                        className="rounded-full border bg-white px-3 py-1.5 text-[12.5px] font-medium transition-colors hover:bg-white/70"
+                        style={{
+                          borderColor: FT_TEAL_BORDER,
+                          color: FT_TEAL_DARK,
+                        }}
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Composer — type your own follow-up. Submits resolve
+                  against the curated exchanges first; anything that
+                  doesn't match falls through to the area's fallback. */}
+              <form
+                onSubmit={handleComposerSubmit}
+                className="flex items-center gap-2 rounded-2xl border bg-white px-3 py-1.5 transition-colors focus-within:border-[var(--ft-teal-dark)]"
+                style={{ borderColor: FT_TEAL_BORDER }}
+              >
+                <input
+                  type="text"
+                  value={composerValue}
+                  onChange={(e) => setComposerValue(e.target.value)}
+                  placeholder="Ask a follow-up…"
+                  className="flex-1 bg-transparent text-[13.5px] text-foreground outline-none placeholder:text-foreground/35"
+                  aria-label="Ask a follow-up question"
+                />
+                <button
+                  type="submit"
+                  disabled={!composerValue.trim()}
+                  aria-label="Send follow-up"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white shadow-sm transition-opacity disabled:opacity-30"
+                  style={{ backgroundColor: FT_TEAL_DARK }}
+                >
+                  <Send className="h-3.5 w-3.5" strokeWidth={2.25} />
+                </button>
+              </form>
             </div>
           )}
 
@@ -1898,12 +2025,12 @@ function ResolutionTurn({
           </div>
 
           {/* Third turn — chat-style follow-up exchange */}
-          {pickedFollowUp && followUpExchange && (
+          {followUp && (
             <FollowUpTurn
-              question={pickedFollowUp}
+              question={followUp.questionText}
               loading={loadingFollowUp}
-              loadingText={followUpExchange.loadingText}
-              response={followUpExchange.agent}
+              loadingText={followUp.exchange.loadingText}
+              response={followUp.exchange.agent}
             />
           )}
         </>
